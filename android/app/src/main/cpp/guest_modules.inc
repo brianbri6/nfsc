@@ -205,8 +205,81 @@ void bindDeferredModuleImports(size_t first){
 // NFSCO: the lifted NFSC.exe carries palmont's patches (jumps into palmont and
 // its pool), so palmont must be loaded and attached before the game starts,
 // as NFSCO's bootstrapper does on Windows.
+// NFSCO ships its text only in English: every NFSCO/files/nfsco/LANGUAGES/
+// <LANGUAGE>_*.BIN is a copy of ENGLISH_*.BIN with its new strings. For
+// another language, rebuild those copies from NFSCO's English chunk with the
+// game's own translation of each string NFSCO left unchanged (same hash and
+// same English text as the game's English file); new and edited NFSCO
+// strings stay in English. Chunk 0x39000: count, table offset, strings offset
+// (from +8), name; table of (hash, string offset); 4-byte aligned; any
+// chunks after it are kept.
+struct LanguageChunk {std::vector<uint8_t> bytes;uint32_t count=0,table=0,strings=0,end=0;std::map<uint32_t,std::string> text;};
+bool readLanguageChunk(const std::filesystem::path& path,LanguageChunk& chunk){
+    std::ifstream in(path,std::ios::binary);if(!in)return false;
+    chunk.bytes.assign(std::istreambuf_iterator<char>(in),{});auto& d=chunk.bytes;
+    auto u32=[&](size_t at){uint32_t v=0;if(at+4<=d.size())std::memcpy(&v,d.data()+at,4);return v;};
+    if(d.size()<0x24||u32(0)!=0x39000u)return false;
+    chunk.end=8+u32(4);chunk.count=u32(8);chunk.table=8+u32(12);chunk.strings=8+u32(16);
+    if(chunk.end>d.size()||chunk.table+uint64_t(chunk.count)*8>chunk.end||chunk.strings>chunk.end)return false;
+    for(uint32_t i=0;i<chunk.count;++i){
+        uint32_t hash=u32(chunk.table+i*8),at=chunk.strings+u32(chunk.table+i*8+4);if(at>=chunk.end)return false;
+        auto* begin=reinterpret_cast<const char*>(d.data()+at);chunk.text[hash]=std::string(begin,strnlen(begin,chunk.end-at));
+    }
+    return true;
+}
+void applyNfscoTranslation(){
+    static const std::map<std::string,std::pair<const char*,const char*>> files={  // registry name -> {game file, NFSCO file}
+        {"Spanish",{"Spanish","SPANISH"}},{"Spanish (Mexican)",{"Mexican","MEXICAN"}},{"French",{"French","FRENCH"}},
+        {"German",{"German","GERMAN"}},{"Italian",{"Italian","ITALIAN"}},{"Dutch",{"Dutch","DUTCH"}},{"Swedish",{"Swedish","SWEDISH"}},
+        {"Danish",{"Danish","DANISH"}},{"Finnish",{"Finnish","FINNISH"}},{"Polish",{"Polish","POLISH"}},{"Czech",{"Czech","CZECH"}},
+        {"Hungarian",{"Hungarian","HUNGARIAN"}},{"Korean",{"Korean","KOREAN"}},
+        {"Chinese (Traditional)",{"Chinese_Trad","CHINESE_TRAD"}},{"Chinese (Simplified)",{"Chinese_Simp","CHINESE_SIMP"}}};
+    auto found=files.find(guestLanguage);if(found==files.end())return;  // English: NFSCO's files as shipped
+    unsigned translated=0,total=0;
+    for(const char* part:{"FRONTEND","GLOBAL","INGAME"}){
+        LanguageChunk nfsco,english,local;
+        auto nfscoPath=gamePath(std::string("C:\\nfsc\\NFSCO\\files\\nfsco\\LANGUAGES\\ENGLISH_")+part+".BIN");
+        if(!readLanguageChunk(nfscoPath,nfsco)||!readLanguageChunk(gamePath(std::string("C:\\nfsc\\LANGUAGES\\English_")+part+".bin"),english)
+           ||!readLanguageChunk(gamePath(std::string("C:\\nfsc\\LANGUAGES\\")+found->second.first+"_"+part+".bin"),local)){
+            NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"NFSC","NFSCO translation: %s text files not readable; NFSCO text stays in English",part);continue;}
+        std::vector<uint8_t> out(nfsco.bytes.begin(),nfsco.bytes.begin()+nfsco.strings);
+        for(uint32_t i=0;i<nfsco.count;++i){
+            uint32_t hash;std::memcpy(&hash,nfsco.bytes.data()+nfsco.table+i*8,4);
+            std::string text=nfsco.text[hash];
+            auto game=english.text.find(hash);auto translation=local.text.find(hash);
+            if(game!=english.text.end()&&translation!=local.text.end()&&game->second==text){text=translation->second;++translated;}
+            ++total;uint32_t offset=uint32_t(out.size()-nfsco.strings);std::memcpy(out.data()+nfsco.table+i*8+4,&offset,4);
+            out.insert(out.end(),text.begin(),text.end());out.push_back(0);
+        }
+        while(out.size()%4)out.push_back(0);
+        uint32_t size=uint32_t(out.size()-8);std::memcpy(out.data()+4,&size,4);
+        out.insert(out.end(),nfsco.bytes.begin()+nfsco.end,nfsco.bytes.end());
+        auto target=gamePath(std::string("C:\\nfsc\\NFSCO\\files\\nfsco\\LANGUAGES\\")+found->second.second+"_"+part+".BIN");
+        std::ifstream current(target,std::ios::binary);std::vector<uint8_t> existing((std::istreambuf_iterator<char>(current)),{});current.close();
+        if(existing==out)continue;
+        std::ofstream file(target,std::ios::binary|std::ios::trunc);file.write(reinterpret_cast<const char*>(out.data()),std::streamsize(out.size()));
+    }
+    NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","NFSCO text in %s: %u of %u strings translated from the game's own files",guestLanguage.c_str(),translated,total);
+}
+// NFSCO keeps the game language in NFSCO/registry.json ("language", the same
+// names as the registry value) and applies it over the registry: write the
+// launcher's choice there before palmont reads it.
+void applyNfscoLanguage(){
+    auto path=gamePath("C:\\nfsc\\NFSCO\\registry.json");
+    std::ifstream in(path,std::ios::binary);if(!in)return;
+    std::string text((std::istreambuf_iterator<char>(in)),{});in.close();
+    size_t key=text.find("\"language\"");if(key==std::string::npos)return;
+    size_t open=text.find('"',text.find(':',key));size_t close=open==std::string::npos?open:text.find('"',open+1);
+    if(close==std::string::npos)return;
+    if(text.compare(open+1,close-open-1,guestLanguage)==0)return;
+    text.replace(open+1,close-open-1,guestLanguage);
+    std::ofstream out(path,std::ios::binary|std::ios::trunc);out<<text;
+    NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","NFSCO language set to %s",guestLanguage.c_str());
+}
 void startNfsco(){
     memory->commit(nfscoPoolBase,nfscoPoolSize);
+    applyNfscoLanguage();
+    applyNfscoTranslation();
     attachStaticTls(g_fs_base);for(auto& thread:guestThreads)if(thread->tib)attachStaticTls(thread->tib);  // PEB
     uint32_t palmont=loadGuestModule("palmont.dll"),attach=0;
     if(!palmont)throw GuestStop("NFSCO is required: copy the NFSCO folder (with bin/palmont.dll) and logging.dll into the nfsc folder");

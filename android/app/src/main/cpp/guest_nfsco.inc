@@ -351,7 +351,23 @@ void d3dCreate9Ex(){
     if(arg(1))write32(arg(1),0);ret(0x8876086au,2);
 }
 
+// WSASendTo (NFSCO's ENet-style client): the WSABUF list gathered into one
+// datagram and sent by sendto. Overlapped sends are not provided.
+void wsaSendTo(){
+    uint32_t entry=g_esp,buffers=arg(1),count=arg(2),sentOut=arg(3),flags=arg(4),to=arg(5),toLength=arg(6);
+    if(arg(7)||arg(8))throw GuestStop("Overlapped WSASendTo is not provided");
+    uint32_t total=0;for(uint32_t i=0;i<count;++i)total+=read32(buffers+i*8);
+    uint32_t data=allocate(total?total:1),at=0;
+    for(uint32_t i=0;i<count;++i){uint32_t length=read32(buffers+i*8);if(length)std::memcpy(ptr(data+at,length),ptr(read32(buffers+i*8+4),length),length);at+=length;}
+    write32(entry+8,data);write32(entry+12,total);write32(entry+16,flags);write32(entry+20,to);write32(entry+24,toLength);
+    socketSendTo();g_esp+=3*4;  // sendto(s, buf, len, flags, to, tolen) has 3 arguments fewer
+    heaps->free(GuestHeaps::process,data);
+    if(g_eax==UINT32_MAX)return;  // SOCKET_ERROR, WSAGetLastError already set
+    if(sentOut)write32(sentOut,g_eax);g_eax=0;
+}
+
 const std::map<std::string,recomp_func_t> nfscoFunctions={
+    {"WSASendTo",wsaSendTo},
     {"GetStockObject",gdiGetStockObject},{"ClientToScreen",userIdentityPoint},{"ScreenToClient",userIdentityPoint},
     {"GetCapture",userZero0},{"GetMessageExtraInfo",userZero0},{"IsWindowUnicode",userIsWindowUnicode},
     {"TrackMouseEvent",userTrackMouseEvent},{"MoveWindow",userMoveWindow},

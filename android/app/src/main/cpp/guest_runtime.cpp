@@ -449,7 +449,7 @@ void testGuestSoundCaps(){
 }
 recomp_func_t resolveFunction(const std::string& dll, const std::string& name) {
     if(auto found=carbonFunctions.find(dll+"!"+name);found!=carbonFunctions.end())return found->second;
-    if(dll=="kernel32.dll"||dll=="user32.dll"||dll=="shell32.dll"||dll=="ole32.dll"||dll=="gdi32.dll"||dll=="imm32.dll"||dll=="dwmapi.dll"||dll=="d3d9.dll")if(auto found=nfscoFunctions.find(name);found!=nfscoFunctions.end())return found->second;
+    if(dll=="kernel32.dll"||dll=="user32.dll"||dll=="shell32.dll"||dll=="ole32.dll"||dll=="gdi32.dll"||dll=="imm32.dll"||dll=="dwmapi.dll"||dll=="d3d9.dll"||dll=="ws2_32.dll")if(auto found=nfscoFunctions.find(name);found!=nfscoFunctions.end())return found->second;
     if((dll=="shfolder.dll"||dll=="shell32.dll")&&name=="SHGetFolderPathA")return shellFolderPath;
     if(dll=="dsound.dll"&&(name=="#1"||name=="DirectSoundCreate"))return directSoundCreate;
     if(dll=="dinput8.dll"&&name=="DirectInput8Create")return directInputCreate;
