@@ -1,0 +1,3 @@
+# NFSC.exe (Carbon PC 1.4) hook sites, measured on this binary. None yet:
+# the widescreen/HUD adaptation is mapped later.
+# VA        purpose

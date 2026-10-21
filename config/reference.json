@@ -1,0 +1,10 @@
+{
+  "game": "Need for Speed Carbon, PC",
+  "executable": "NFSC.exe",
+  "sha256": "baaaaec33873d4ba7e4dbae6a5212049ffdcf9679a35d865d7625b4189952fd3",
+  "image_base": "0x00400000",
+  "entry": "0x0087e926",
+  "size_of_image": "0x0082b34e",
+  "version": "1.4 code (no version resource); NFSCO/bin/nfsc.exe has byte-identical .text/.rdata/.data",
+  "source_directory": "../Need for Speed Carbon"
+}
