@@ -105,6 +105,7 @@ void moduleHandleW() {
     for(auto c:chars){if(c>127){lastError=126;ret(0,1);return;}name.push_back(static_cast<char>(c));}
     name=lower(name);if(name=="nfsc.exe"){ret(imageBase,1);return;}
     if(name.find('.')==std::string::npos)name+=".dll";
+    if(uint32_t loaded=guestModuleHandle(name)){ret(loaded,1);return;}  // lifted DLLs (d3dx9_30, NFSCO)
     auto found=modules.find(name);if(found==modules.end())lastError=126;ret(found==modules.end()?0:found->second,1);
 }
 std::map<uint32_t,uint32_t> moduleReferences;
@@ -178,6 +179,17 @@ void userDefaultLcid(){ret(0x409,0);}
 void validCodePage(){uint32_t cp=arg(0);ret(cp==1252||cp==437||cp==65001?1:0,1);}
 void localeInfoA(){
     uint32_t type=arg(1)&~0x80000000u,out=arg(2),capacity=arg(3);std::string value;
+    if(type&0x20000000u){  // LOCALE_RETURN_NUMBER: a DWORD; the size is counted in characters
+        uint32_t number;
+        switch(type&~0x20000000u){
+        case 0x1004:number=1252;break;  // LOCALE_IDEFAULTANSICODEPAGE
+        case 0x000b:number=437;break;   // LOCALE_IDEFAULTCODEPAGE
+        default:throw GuestStop("GetLocaleInfoA: locale number "+hex(type)+" not provided");
+        }
+        if(!capacity){ret(4,4);return;}
+        if(capacity<4){lastError=122;ret(0,4);return;}
+        write32(out,number);ret(4,4);return;
+    }
     switch(type){
     case 0x1004:value="1252";break;  // LOCALE_IDEFAULTANSICODEPAGE
     case 0x000b:value="437";break;   // LOCALE_IDEFAULTCODEPAGE

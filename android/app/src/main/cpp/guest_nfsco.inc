@@ -288,8 +288,21 @@ std::map<uint32_t,SharedSection> sharedSections;   // object id -> memory
 std::map<std::string,uint32_t> sharedSectionNames;  // name -> object id
 uint32_t nextSharedSection=0xf00a0001u;
 void createSharedSection(const std::string& name){
-    uint32_t file=arg(0),high=arg(3),low=arg(4);
-    if(file!=UINT32_MAX)throw GuestStop("CreateFileMapping of a file is not provided ("+name+")");
+    uint32_t file=arg(0),protect=arg(2)&0xff,high=arg(3),low=arg(4);
+    if(file!=UINT32_MAX){
+        // A read-only view of a file (NFSCO maps its .cso shaders): the bytes
+        // are copied into guest memory; writes would not reach the file.
+        if(protect!=0x02&&protect!=0x08)throw GuestStop("CreateFileMapping of a file for writing is not provided");
+        auto handle=fileHandles.find(file);if(handle==fileHandles.end()){lastError=6;ret(0,6);return;}
+        struct stat status{};if(fstat(handle->second,&status)){lastError=fileError();ret(0,6);return;}
+        uint64_t size=high||low?(uint64_t(high)<<32|low):uint64_t(status.st_size);
+        if(!size||size>uint64_t(status.st_size)||size>(256u<<20)){lastError=size?87:1006;ret(0,6);return;}  // ERROR_FILE_INVALID
+        uint32_t block=allocate(uint32_t(size));
+        for(uint64_t done=0;done<size;){ssize_t n=::pread(handle->second,ptr(block+uint32_t(done),uint32_t(size-done)),size_t(size-done),off_t(done));
+            if(n<=0){heaps->free(GuestHeaps::process,block);lastError=n<0?fileError():38;ret(0,6);return;}done+=uint64_t(n);}
+        uint32_t object=nextSharedSection++;sharedSections[object]={block,uint32_t(size)};
+        uint32_t mapping=nextKernelHandle++;kernelHandleAliases.emplace(mapping,object);lastError=0;ret(mapping,6);return;
+    }
     if(high||!low||low>(64u<<20)){lastError=87;ret(0,6);return;}
     uint32_t object=0;lastError=0;
     if(auto found=sharedSectionNames.find(name);!name.empty()&&found!=sharedSectionNames.end()){object=found->second;lastError=183;}  // ERROR_ALREADY_EXISTS
@@ -312,7 +325,41 @@ void k32MapViewOfFile(){
 }
 void k32UnmapViewOfFile(){ret(1,1);}  // sections live as long as the guest
 
+// palmont's window/overlay support (ImGui over the game window). The game
+// window fills the Android surface at the origin, so client and screen
+// coordinates are the same; there is no clipboard, IME or DWM frame.
+void gdiGetStockObject(){ret(0xf00b0000u+(arg(0)&0xffu),1);}
+void userIdentityPoint(){ret(1,2);}   // ClientToScreen / ScreenToClient
+void userZero0(){ret(0,0);}           // GetCapture, GetMessageExtraInfo
+void userIsWindowUnicode(){ret(0,1);}
+void userTrackMouseEvent(){ret(1,1);}
+void userMoveWindow(){ret(1,6);}
+void userOpenClipboard(){lastError=5;ret(0,1);}
+void userClipboardNone0(){ret(0,0);}  // CloseClipboard, EmptyClipboard
+void userClipboardNone1(){ret(0,1);}  // GetClipboardData
+void userSetClipboardData(){ret(0,2);}
+void immGetContext(){ret(0,1);}
+void immTrue2(){ret(1,2);}            // ImmReleaseContext, ImmSetCompositionWindow, ImmSetCandidateWindow
+void dwmSetWindowAttribute(){ret(0,4);}
+void shellExecuteW(){
+    NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","Guest ShellExecute %s %s (not opened)",narrowGuest(arg(1)).c_str(),narrowGuest(arg(2)).c_str());
+    ret(2,6);  // <= 32: failure (ERROR_FILE_NOT_FOUND)
+}
+// Direct3D 9Ex is not bridged: callers fall back to Direct3DCreate9.
+void d3dCreate9Ex(){
+    NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","Direct3DCreate9Ex refused (D3DERR_NOTAVAILABLE) from %08x",g_cur_func);
+    if(arg(1))write32(arg(1),0);ret(0x8876086au,2);
+}
+
 const std::map<std::string,recomp_func_t> nfscoFunctions={
+    {"GetStockObject",gdiGetStockObject},{"ClientToScreen",userIdentityPoint},{"ScreenToClient",userIdentityPoint},
+    {"GetCapture",userZero0},{"GetMessageExtraInfo",userZero0},{"IsWindowUnicode",userIsWindowUnicode},
+    {"TrackMouseEvent",userTrackMouseEvent},{"MoveWindow",userMoveWindow},
+    {"PeekMessageW",peekMessage},{"DispatchMessageW",dispatchMessage},{"PostMessageW",postMessage},{"LoadCursorW",loadCursor},
+    {"OpenClipboard",userOpenClipboard},{"CloseClipboard",userClipboardNone0},{"EmptyClipboard",userClipboardNone0},
+    {"GetClipboardData",userClipboardNone1},{"SetClipboardData",userSetClipboardData},
+    {"ImmGetContext",immGetContext},{"ImmReleaseContext",immTrue2},{"ImmSetCompositionWindow",immTrue2},{"ImmSetCandidateWindow",immTrue2},
+    {"DwmSetWindowAttribute",dwmSetWindowAttribute},{"ShellExecuteW",shellExecuteW},{"Direct3DCreate9Ex",d3dCreate9Ex},
     {"LCMapStringEx",k32LCMapStringEx},
     {"CreateFileMappingA",k32CreateFileMappingA},{"CreateFileMappingW",k32CreateFileMappingW},
     {"MapViewOfFile",k32MapViewOfFile},{"UnmapViewOfFile",k32UnmapViewOfFile},

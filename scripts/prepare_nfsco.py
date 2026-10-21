@@ -87,9 +87,12 @@ def pool_module(capture):
     code = (capture / "pool.bin").read_bytes()
     if len(code) > POOL_SIZE:
         sys.exit("pool larger than its reservation")
-    seeds = [{"address": POOL_BASE + i, "note": "nfsco pool slot"} for i in range(0, len(code), SLOT) if any(code[i:i + SLOT])]
+    # MinHook's layout: 64-byte trampoline slots in the first block (0x20000
+    # bytes), 32-byte relay slots in the next one.
+    seeds = [{"address": POOL_BASE + i, "note": "nfsco pool slot"} for i in range(0, min(len(code), 0x20000), SLOT) if any(code[i:i + SLOT])]
+    seeds += [{"address": POOL_BASE + i, "note": "nfsco pool relay"} for i in range(0x20000, len(code), 32) if any(code[i:i + 32])]
     targets = {int(p[2][-1], 16) for p in read_patches(capture) if len(p[2]) == 2 and p[2][0] in ("jmp", "call")}
-    missing = [hex(t) for t in targets if POOL_BASE <= t < POOL_BASE + len(code) and (t - POOL_BASE) % SLOT]
+    missing = [hex(t) for t in targets if POOL_BASE <= t < POOL_BASE + len(code) and (t - POOL_BASE) % (SLOT if t < POOL_BASE + 0x20000 else 32)]
     if missing:
         sys.exit(f"patch targets inside pool slots not at a slot start: {missing}")
     text_rva, size = 0x1000, len(code)
@@ -118,13 +121,33 @@ def main(capture):
             sys.exit(f"capture was not made with the guest layout ({need} missing in modules.txt)")
     patched_exe(capture)
     dll, seeds = pool_module(capture)
-    run("run_lift.py", "catalog", dll, seeds, WORK / "pool_catalog.json", "--seeds-only")
+    # Every slot is forced: the zero padding after a slot's final jump decodes
+    # as code and would otherwise hide the next slot from the seed rules.
+    forced = WORK / "pool_forced.json"
+    json.dump([e["address"] for e in json.load(open(seeds))], open(forced, "w"))
+    run("run_lift.py", "catalog", dll, seeds, WORK / "pool_catalog.json", "--seeds-only", "--forced", forced)
     run("run_lift.py", "lift", dll, WORK / "pool_catalog.json", ROOT / "src/recomp/gen_pool", "--prefix", "pool_")
     for name, (source, base, prefix) in MODULES.items():
         tag = prefix.rstrip("_")
         image, seeds = WORK / f"{tag}.relocated.dll", WORK / f"{tag}_seeds.json"
         run("prepare_module.py", source, hex(base), image, seeds)
-        run("run_lift.py", "catalog", image, seeds, WORK / f"{tag}_catalog.json", "--seeds-only")
+        catalog = WORK / f"{tag}_catalog.json"
+        run("run_lift.py", "catalog", image, seeds, catalog, "--seeds-only")
+        # Seeds the rules rejected because a jump table decoded as code covers
+        # them, although they open with an MSVC frame prologue: forced.
+        data = pefile.PE(str(image)).get_memory_mapped_image()
+        starts = {f["address"] for f in json.load(open(catalog))["functions"]}
+        prologue = []
+        for e in json.load(open(seeds)):
+            va = e["address"] if isinstance(e, dict) else e
+            head = data[va - base:va - base + 5]
+            if va not in starts and (head[:3] == b"\x55\x8b\xec" or head == b"\x8b\xff\x55\x8b\xec"):
+                prologue.append(va)
+        print(f"[*] {name}: {len(prologue)} rejected seeds open a frame prologue: forced")
+        if prologue:
+            forced = WORK / f"{tag}_forced.json"
+            json.dump(prologue, open(forced, "w"))
+            run("run_lift.py", "catalog", image, seeds, catalog, "--seeds-only", "--forced", forced)
         run("run_lift.py", "lift", image, WORK / f"{tag}_catalog.json", ROOT / "src/recomp" / f"gen_{tag}", "--prefix", prefix)
     lift_game()
 
@@ -137,28 +160,78 @@ def continuations():
     found = set()
     for tag in ("palmont", "pool"):
         for c in (ROOT / "src/recomp" / f"gen_{tag}").glob(f"{tag}_recomp_*.c"):
-            for m in re.finditer(r"RECOMP_ITAIL\(0x([0-9A-F]{8})u\); (?:return;|RECOMP_RETURN\(\);) /\* push/ret jump", c.read_text()):
+            # push/ret jumps, and every direct jump or call into the game
+            # (trampolines resume the original function after its prologue).
+            for m in re.finditer(r"RECOMP_I(?:TAIL|CALL)\(0x([0-9A-F]{8})u\)", c.read_text()):
                 va = int(m.group(1), 16)
                 if 0x401000 <= va < 0x9C1000:
                     found.add(va)
     return sorted(found)
 
 
+def game_pointers():
+    """Game functions palmont and its trampolines reach through pointers
+    (call eax, call [table]): every 32-bit value in their images that lands in
+    NFSC.exe's code and probes as a function body. The catalog rejects values
+    that fall inside code it already decoded."""
+    sys.path.insert(0, str(ROOT.parent / "pcrecomp" / "tools" / "pe"))
+    sys.path.insert(0, str(ROOT.parent / "pcrecomp" / "tools" / "disasm"))
+    from pe_analyze import analyze_pe
+    from disasm32 import Disassembler
+    exe = WORK / "nfsco.analysis.exe"
+    info = analyze_pe(str(exe))
+    dis = Disassembler(exe.read_bytes(), info.image_base, info.sections)
+    import re
+    found = set()
+    # Immediates of instructions the lifter decoded (mov eax, imm; push imm; ...).
+    for tag in ("palmont", "pool"):
+        for c in (ROOT / "src/recomp" / f"gen_{tag}").glob(f"{tag}_recomp_*.c"):
+            for m in re.finditer(r"0x00([4-9][0-9A-F]{5})u", c.read_text()):
+                found.add(int(m.group(1), 16))
+    # Aligned values in palmont's data sections (function pointer tables).
+    pe = pefile.PE(str(WORK / "palmont.relocated.dll"))
+    for section in pe.sections:
+        if section.Characteristics & 0x20000000:   # executable: covered above
+            continue
+        data = section.get_data()
+        for off in range(0, len(data) - 3, 4):
+            found.add(int.from_bytes(data[off:off + 4], "little"))
+    found = {va for va in found if 0x401000 <= va < 0x9C1000}
+    return sorted(va for va in found if dis.probes_as_function_body(va))
+
+
 def lift_game():
-    """Catalog and lift the patched NFSC.exe into src/recomp/gen, with the
-    usual code seeds plus the hook continuations."""
-    seeds = json.load(open(ROOT / "work" / "seeds_code.json"))
-    extra = continuations()
-    seeds += [{"address": va, "note": "nfsco hook continuation"} for va in extra]
-    path = WORK / "nfsc_seeds.json"
-    json.dump(seeds, open(path, "w"), indent=1)
-    print(f"[*] {len(extra)} hook continuations added to the NFSC.exe seeds")
+    """Catalog and lift the patched NFSC.exe into src/recomp/gen.
+
+    Pass 1: the usual code seeds, with the hook continuations as forced roots
+    (they are the middle of game functions, which the seed rules reject).
+    Pass 2: also the game addresses palmont points at that fall in gaps of
+    pass 1 (outside every catalogued function), forced too, so no catalogued
+    function is displaced by a stray value."""
+    seeds = ROOT / "work" / "seeds_code.json"
     exe, catalog = WORK / "nfsco.analysis.exe", WORK / "catalog.json"
-    run("run_lift.py", "catalog", exe, path, catalog)
+    extra = continuations()
+    forced = WORK / "nfsc_forced.json"
+    json.dump(extra, open(forced, "w"))
+    print(f"[*] {len(extra)} hook continuations forced into the NFSC.exe catalog")
+    run("run_lift.py", "catalog", exe, seeds, catalog, "--forced", forced)
+    functions = json.load(open(catalog))["functions"]
+    extents = sorted((f["address"], f["end"]) for f in functions)
+    import bisect
+    starts = [a for a, _ in extents]
+
+    def covered(va):
+        i = bisect.bisect_right(starts, va) - 1
+        return i >= 0 and extents[i][0] <= va < extents[i][1]
+    gaps = [va for va in game_pointers() if not covered(va)]
+    print(f"[*] {len(gaps)} game addresses palmont points at lie outside the catalog: forced too")
+    if gaps:
+        json.dump(extra + gaps, open(forced, "w"))
+        run("run_lift.py", "catalog", exe, seeds, catalog, "--forced", forced)
     starts = {f["address"] for f in json.load(open(catalog))["functions"]}
-    missing = [hex(va) for va in extra if va not in starts]
+    missing = [hex(va) for va in extra + gaps if va not in starts]
     if missing:
-        sys.exit(f"hook continuations missing from the catalog: {missing}")
+        sys.exit(f"forced roots missing from the catalog: {missing}")
     out = ROOT / "src/recomp/gen"
     if out.exists():
         import shutil

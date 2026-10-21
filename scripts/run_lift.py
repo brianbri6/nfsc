@@ -81,7 +81,7 @@ def restore_seeds(dis, iat, funcs, seeds):
           f"{len(bogus)} uncalled bogus starts that covered a seed removed")
 
 
-def cmd_catalog(exe, seeds_path, out, seeds_only=False):
+def cmd_catalog(exe, seeds_path, out, seeds_only=False, forced=None):
     info = analyze_pe(exe)
     iat = build_iat_map(info)
     data = open(exe, "rb").read()
@@ -108,6 +108,10 @@ def cmd_catalog(exe, seeds_path, out, seeds_only=False):
     # These roots are backed by actual strict-dispatch failures and assembly.
     forced_path = os.path.join(HERE, '..', 'config', 'forced_seeds.json')
     pending = json.load(open(forced_path)) if os.path.exists(forced_path) else []
+    if forced:
+        # Extra forced roots for this run (--forced FILE: JSON array of VAs),
+        # e.g. NFSCO hook continuations in the middle of game functions.
+        pending += [int(v) for v in json.load(open(forced))]
     while pending:
         address = pending.pop()
         if address in funcs or not info.code_start <= address < info.code_end:
@@ -289,7 +293,8 @@ def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", extra_
 if __name__ == "__main__":
     a = sys.argv[1:]
     if a and a[0] == "catalog":
-        cmd_catalog(a[1], a[2], a[3], "--seeds-only" in a)
+        cmd_catalog(a[1], a[2], a[3], "--seeds-only" in a,
+                    a[a.index("--forced") + 1] if "--forced" in a else None)
     elif a and a[0] == "lift":
         split = int(a[a.index("--split") + 1]) if "--split" in a else 400
         names = a[a.index("--names") + 1] if "--names" in a else None

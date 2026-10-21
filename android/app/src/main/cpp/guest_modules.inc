@@ -51,7 +51,19 @@ uint32_t nfscoPoolAllocate(uint32_t bytes){
 // Static TLS (__declspec(thread)): only palmont.dll has it. Its template is
 // copied into a block per guest thread, reached through TEB+0x2C slot 0.
 struct StaticTls {uint32_t start=0,bytes=0,zeroFill=0;bool active=false;} staticTls;
+// A minimal PEB shared by every guest thread (TEB+0x30): image base, process
+// heap, Windows XP SP2 version and empty RTL_USER_PROCESS_PARAMETERS. NFSCO's
+// CRT reads PEB->ProcessParameters->Flags to tell a packaged app.
+uint32_t guestPeb(){
+    static uint32_t peb=0;if(peb)return peb;
+    peb=allocate(0x1000);std::memset(ptr(peb,0x1000),0,0x1000);uint32_t parameters=peb+0x800;
+    write32(peb+0x8,imageBase);write32(peb+0x10,parameters);write32(peb+0x18,GuestHeaps::process);
+    write32(peb+0xa4,5);write32(peb+0xa8,1);write32(peb+0xac,2600);write32(peb+0xb0,2);  // OSMajor/Minor/Build, Platform
+    write32(parameters,0x298);write32(parameters+4,0x298);                              // MaximumLength, Length
+    return peb;
+}
 void attachStaticTls(uint32_t tib){
+    if(!read32(tib+0x30))write32(tib+0x30,guestPeb());
     if(!staticTls.active||read32(tib+0x2c))return;
     uint32_t total=staticTls.bytes+staticTls.zeroFill+16,block=allocate(total),array=allocate(16);
     std::memset(ptr(block,total),0,total);
@@ -195,6 +207,7 @@ void bindDeferredModuleImports(size_t first){
 // as NFSCO's bootstrapper does on Windows.
 void startNfsco(){
     memory->commit(nfscoPoolBase,nfscoPoolSize);
+    attachStaticTls(g_fs_base);for(auto& thread:guestThreads)if(thread->tib)attachStaticTls(thread->tib);  // PEB
     uint32_t palmont=loadGuestModule("palmont.dll"),attach=0;
     if(!palmont)throw GuestStop("NFSCO is required: copy the NFSCO folder (with bin/palmont.dll) and logging.dll into the nfsc folder");
     if(!guestModuleExport(palmont,"OnAttach",attach))throw GuestStop("palmont.dll has no OnAttach export");
