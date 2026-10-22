@@ -78,7 +78,7 @@ def main():
         if len(header) < 256 or header[:2] != b"MZ":
             parser.error(f"{name}: expected a PE32 DLL, but got an invalid DOS header")
         offset = struct.unpack_from("<I", header, 0x3c)[0]
-        if offset + 24 + 60 > len(header) or header[offset:offset + 4] != b"PE\\0\\0":
+        if offset + 24 + 60 > len(header) or header[offset:offset + 4] != bytes((0x50, 0x45, 0, 0)):
             parser.error(f"{name}: invalid PE header")
         opt = offset + 24
         machine = struct.unpack_from("<H", header, offset + 4)[0]
