@@ -351,6 +351,27 @@ unconfirmed; then build ARM64 with -PnfsGuestLto=OFF and verify the APK
 is actually present. Do not upload copyrighted game binaries to public
 GitHub.
 
+## Normal generated-C linker integration test (latest)
+
+Local container execution remains unavailable (ClientError), so the generated
+52,931-function Carbon C and private source DLLs remain untestable here.
+
+To exercise the NON-STUB CMake source-collection path without copying game
+assets into a public GitHub repository, committed:
+- scripts/create_synthetic_guest_ci.py: creates small clearly marked test C
+  source modules in the exact generated directories used by the real build
+  (EXE, D3DX, MSVCR, MSVCP, ABK) on a disposable GitHub runner.
+- android/app/src/main/cpp/CMakeLists.txt: rejects any fixture tagged
+  SYNTHETIC_CI_ONLY during normal builds; explicit opt-in is required.
+- android/app/build.gradle: -PnfsSyntheticCI=ON maps the test-only CMake flag.
+- .github/workflows/offline-generated-ci.yml: builds the *normal* generated-C
+  CMake branch, unlike the older host-only NFSC_SMOKE_STUBS test, using
+  harmless fake C functions and checks native objects and APK packaging.
+- The CI artifact is not playable and must never be released.
+- GitHub Actions run at creation:
+  https://github.com/brianbri6/nfsc/actions/runs/39824773205
+  Status at creation: IN PROGRESS. Verify outcome before claiming success.
+
 ## Next steps
 1. Game and sound binary inputs are verified; fetch pcrecomp + nfsu2-recompiled and run offline --check-only on the build host.
 2. Run prepare_offline.py to generate lifted C and required DLL/sound modules.
