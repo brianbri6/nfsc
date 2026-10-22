@@ -41,6 +41,8 @@ def main():
                         help="Path to the 32-bit d3dx9_30.dll (Windows SysWOW64 or your own local copy)")
     parser.add_argument("--check-only", action="store_true",
                         help="Validate inputs without generating any C code")
+    parser.add_argument("--resume", action="store_true",
+                        help="Reuse completed main/DLL/ABK lifts; validate their manifests first")
     args = parser.parse_args()
     game = args.game_root.expanduser().resolve()
     pcrecomp = Path(os.environ.get("PCRECOMP", ROOT.parent / "pcrecomp")).expanduser().resolve()
@@ -114,31 +116,73 @@ def main():
     (ROOT / "src" / "recomp" / "gen_abk").mkdir(parents=True, exist_ok=True)
     analysis = work / "speed.analysis.exe"
 
-    # The first catalog supplies function/code boundaries for the seed extractor.
-    run(env, py, "scripts/analyze_binary.py", exe)
-    run(env, py, "scripts/data_seeds.py", analysis, work / "seeds_data.json")
-    run(env, py, "scripts/run_lift.py", "catalog", analysis,
-        work / "seeds_data.json", work / "catalog_initial.json")
-    run(env, py, "scripts/code_seeds.py", analysis, work / "catalog_initial.json",
-        work / "seeds_code.json", "--merge", work / "seeds_data.json")
-    run(env, py, "scripts/run_lift.py", "catalog", analysis,
-        work / "seeds_code.json", work / "catalog.json")
-    run(env, py, "scripts/run_lift.py", "lift", analysis,
-        work / "catalog.json", ROOT / "src" / "recomp" / "gen")
+    def complete_lift(directory, prefix):
+        # Never treat a partly written catalog or a lone C file as complete.
+        stats = directory / f"{prefix}lift_stats.json"
+        dispatch = directory / f"{prefix}recomp_dispatch.c"
+        if not stats.is_file() or not dispatch.is_file():
+            return False
+        try:
+            record = json.loads(stats.read_text(encoding="utf-8"))
+            return (record.get("functions", 0) > 0 and
+                    record.get("lift_failures", 1) == 0 and
+                    len(list(directory.glob(f"{prefix}recomp_[0-9][0-9][0-9][0-9].c"))) == record.get("files"))
+        except (OSError, ValueError):
+            return False
+
+    # Generated original EXE outputs may be reused only when the analysis
+    # manifest points to this exact uploaded binary, never a different build.
+    analysis_manifest = work / "binary.json"
+    verified_original = False
+    if analysis_manifest.is_file():
+        try:
+            verified_original = (json.loads(analysis_manifest.read_text(encoding="utf-8"))
+                                 .get("sha256") == digest)
+        except (OSError, ValueError):
+            pass
+    skip_main = args.resume and verified_original and complete_lift(
+        ROOT / "src" / "recomp" / "gen", "")
+    if skip_main:
+        print("RESUME: reusing complete verified stock executable C lift.", flush=True)
+    else:
+        # The first catalog supplies function/code boundaries for the seed extractor.
+        run(env, py, "scripts/analyze_binary.py", exe)
+        run(env, py, "scripts/data_seeds.py", analysis, work / "seeds_data.json")
+        run(env, py, "scripts/run_lift.py", "catalog", analysis,
+            work / "seeds_data.json", work / "catalog_initial.json")
+        run(env, py, "scripts/code_seeds.py", analysis, work / "catalog_initial.json",
+            work / "seeds_code.json", "--merge", work / "seeds_data.json")
+        run(env, py, "scripts/run_lift.py", "catalog", analysis,
+            work / "seeds_code.json", work / "catalog.json")
+        run(env, py, "scripts/run_lift.py", "lift", analysis,
+            work / "catalog.json", ROOT / "src" / "recomp" / "gen")
 
     # Carbon's actual imports. EA LAN server and NFSCO are NOT required.
-    run(env, py, "scripts/prepare_modules.py", "d3dx9_30.dll", *REQUIRED_DLLS)
+    required_modules = (("d3dx9_30.dll", "d3dx_"),
+                        ("msvcr71.dll", "msvcr_"),
+                        ("msvcp71.dll", "msvcp_"))
+    pending = [name for name, prefix in required_modules if
+               not (args.resume and complete_lift(ROOT / "src" / "recomp" /
+                                                ("gen_" + prefix.rstrip("_")), prefix))]
+    if pending:
+        run(env, py, "scripts/prepare_modules.py", *pending)
+    else:
+        print("RESUME: all required DLL lifts are complete.", flush=True)
 
     # Execute routines embedded in the stock EA sound banks.
     abk = ROOT / "src" / "recomp" / "gen_abk"
     abk_image = work / "abk_analysis.dll"
     abk_seeds = work / "abk_seeds.json"
     abk_catalog = work / "abk_catalog.json"
-    run(env, py, "scripts/abk_module.py", game, abk_image, abk_seeds, abk / "abk_blocks.c")
-    run(env, py, "scripts/run_lift.py", "catalog", abk_image, abk_seeds,
-        abk_catalog, "--seeds-only")
-    run(env, py, "scripts/run_lift.py", "lift", abk_image, abk_catalog,
-        abk, "--prefix", "abk_")
+    if args.resume and (abk / "abk_blocks.c").is_file() and complete_lift(abk, "abk_"):
+        print("RESUME: reusing complete sound-bank C lift.", flush=True)
+    else:
+        run(env, py, "scripts/abk_module.py", game, abk_image, abk_seeds, abk / "abk_blocks.c")
+        run(env, py, "scripts/run_lift.py", "catalog", abk_image, abk_seeds,
+            abk_catalog, "--seeds-only")
+        run(env, py, "scripts/run_lift.py", "lift", abk_image, abk_catalog,
+            abk, "--prefix", "abk_")
+
     print("\nBase-game C generation completed. Build: cd android && ./gradlew assembleDebug", flush=True)
     print("NFSCO and server.dll are not needed for this single-player build.")
 
