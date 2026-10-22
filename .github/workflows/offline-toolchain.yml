@@ -1,0 +1,79 @@
+name: Carbon offline build toolchain check
+
+on:
+  push:
+    branches: [offline-singleplayer-bootstrap]
+    paths:
+      - '.github/workflows/offline-toolchain.yml'
+      - 'scripts/bootstrap_offline.py'
+      - 'scripts/prepare_offline.py'
+      - 'scripts/verify_offline_assets.py'
+      - 'scripts/prepare_modules.py'
+      - 'tests/test_offline_module_resume.py'
+      - 'scripts/run_lift.py'
+      - 'tests/test_run_lift_seeds.py'
+      - 'tests/test_offline_stage_selection.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-public-toolchain:
+    name: Set up pcrecomp, DXVK and Android dependencies
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Vulkan shader tools
+        run: sudo apt-get update && sudo apt-get install -y glslang-tools spirv-tools
+      - name: Set Git identity for patch series
+        run: |
+          git config --global user.name 'NFS Carbon toolchain CI'
+          git config --global user.email 'noreply@users.noreply.github.com'
+      - name: Check network without touching game files
+        run: |
+          git ls-remote https://github.com/sp00nznet/pcrecomp.git HEAD
+          git ls-remote https://github.com/codepdbh/nfsu2-recompiled.git HEAD
+          git ls-remote https://github.com/Joshua-Ashton/dxvk-native.git refs/tags/native-1.9.2b
+      - name: Check Python source syntax
+        run: |
+          python -m compileall -q scripts
+          python scripts/bootstrap_offline.py --help
+          python scripts/verify_offline_assets.py --help
+      - name: Test resumable DLL processing without game files
+        run: python -m unittest discover -s tests -p 'test_offline_module_resume.py' -v
+      - name: Test isolated game/audio/DLL generation stages
+        run: python -m unittest discover -s tests -p 'test_offline_stage_selection.py' -v
+      - name: Prepare open-source dependencies
+        run: python scripts/bootstrap_offline.py --setup
+      - name: Regression test low-memory function seed restoration
+        run: python -m unittest discover -s tests -p 'test_run_lift_seeds.py' -v
+      - name: Verify prepared dependencies
+        run: |
+          test -f ../pcrecomp/runtime/recomp32/recomp_types.h
+          test -f ../nfsu2-recompiled/third_party/libadrenotools/CMakeLists.txt
+          test -f ../nfsu2-recompiled/build/dxvk-source/src/d3d9/d3d9_device.cpp
+          test "$(find ../nfsu2-recompiled/build/dxvk-source/generated -name '*.spv' | wc -l)" -ge 54
+          echo 'Public recompilation and DXVK dependencies verified.'
+      - name: Package public source and Python wheels for the offline workspace
+        run: |
+          mkdir -p ../offline_wheels
+          python -m pip download -d ../offline_wheels capstone pefile unicorn keystone-engine
+          tar --exclude=.git --exclude=node_modules --exclude=.gradle -czf /tmp/nfsc-open-toolchain.tar.gz -C .. nfsc pcrecomp nfsu2-recompiled offline_wheels
+          ls -lh /tmp/nfsc-open-toolchain.tar.gz
+      - name: Upload toolchain for offline local C generation
+        uses: actions/upload-artifact@v4
+        with:
+          name: nfsc-public-offline-toolchain
+          path: /tmp/nfsc-open-toolchain.tar.gz
+          retention-days: 2
+          if-no-files-found: error
+      - name: Status
+        if: always()
+        run: |
+          echo 'This job intentionally does not upload or execute proprietary game files.'
+          echo 'No APK is created until locally generated game C code is supplied.'

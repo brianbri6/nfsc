@@ -1,0 +1,79 @@
+name: Carbon generated C integration check (non-playable)
+
+on:
+  push:
+    branches: [offline-singleplayer-bootstrap]
+    paths:
+      - '.github/workflows/offline-generated-ci.yml'
+      - 'scripts/create_synthetic_guest_ci.py'
+      - 'android/app/build.gradle'
+      - 'android/app/src/main/cpp/CMakeLists.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile-generated-source-path:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prepare Vulkan shader compilers
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y glslang-tools spirv-tools
+      - name: Configure Android SDK
+        run: |
+          SDK="$ANDROID_HOME"
+          if [ -z "$SDK" ]; then SDK=/usr/local/lib/android/sdk; fi
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          if [ -x "$SDK/cmdline-tools/16.0/bin/sdkmanager" ]; then
+            echo "$SDK/cmdline-tools/16.0/bin" >> "$GITHUB_PATH"
+          elif [ -x "$SDK/cmdline-tools/latest/bin/sdkmanager" ]; then
+            echo "$SDK/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          else
+            echo "Android sdkmanager not found" >&2
+            exit 1
+          fi
+      - name: Install Android native dependencies
+        run: |
+          yes | sdkmanager --licenses || true
+          sdkmanager --install 'platforms;android-35' 'build-tools;35.0.0' 'ndk;28.2.13676358' 'cmake;3.30.5'
+      - name: Prepare patched open-source toolchain
+        run: |
+          git config --global user.name 'Carbon CI'
+          git config --global user.email 'noreply@users.noreply.github.com'
+          python scripts/bootstrap_offline.py --setup
+      - name: Prepare explicitly synthetic C fixtures
+        env:
+          NFSC_SYNTHETIC_CI: '1'
+        run: |
+          python scripts/create_synthetic_guest_ci.py
+          test -f src/recomp/gen/SYNTHETIC_CI_ONLY
+      - name: Compile normal generated-C CMake branch with synthetic fixtures
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace assembleDebug -PnfsGuestLto=OFF -PnfsSyntheticCI=ON -PnfsSmokeStub=OFF -PnfsAbi=arm64-v8a
+      - name: Verify native libraries and generated C objects
+        run: |
+          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          unzip -l "$APK" | grep -F 'lib/arm64-v8a/libnfsc_android.so'
+          for name in recomp_0000.c.o d3dx_recomp_0000.c.o msvcr_recomp_0000.c.o msvcp_recomp_0000.c.o abk_recomp_0000.c.o; do
+            find android/app/.cxx -name "$name" -type f | grep -q . || { echo "Missing compiled generated-C object: $name"; exit 1; }
+          done
+          echo 'All five synthetic generated-C modules compiled through the normal non-stub build path.'
+          echo 'This APK is NOT A GAME. Never release or install as Carbon.'
+      - name: Explicit non-playable notice
+        if: always()
+        run: echo 'CI integration verification only. No original Carbon code or game data was used.'

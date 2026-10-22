@@ -24,11 +24,11 @@ constexpr GuestModuleSpec guestModuleSpecs[]={
 #else
     {"server.dll",0x01270000u,0x10000000u,0x6f000u,false},
 #endif
-    // NFSCO (nfsco.club, translated with its authors' permission): the mod
-    // itself and its logger, at the bases the patch capture used
-    // (tools/nfsco_capture.c, scripts/prepare_nfsco.py).
+#ifdef NFSC_ENABLE_NFSCO
+    // Optional NFSCO modules; never loaded by the stock single-player build.
     {"palmont.dll",0x01060000u,0x10000000u,0x17d000u,true,"NFSCO\\bin\\"},
     {"logging.dll",0x01240000u,0x10000000u,0x28000u,true},
+#endif
 };
 // NFSCO's trampoline pool: palmont's executable allocations are served from
 // here in order (k32VirtualAlloc), at the addresses the capture recorded and
@@ -202,6 +202,7 @@ void bindDeferredModuleImports(size_t first){
     if(bound)NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","Bound %zu imports to lifted DLLs",bound);
 }
 
+#ifdef NFSC_ENABLE_NFSCO
 // NFSCO: the lifted NFSC.exe carries palmont's patches (jumps into palmont and
 // its pool), so palmont must be loaded and attached before the game starts,
 // as NFSCO's bootstrapper does on Windows.
@@ -290,3 +291,4 @@ void startNfsco(){
         throw GuestStop("NFSCO trampolines do not match the lifted pool: "+hex(nfscoPoolNext-nfscoPoolBase)+" bytes allocated, 0x21000 captured");
     NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","NFSCO attached: %u bytes of trampolines",nfscoPoolNext-nfscoPoolBase);
 }
+#endif  // NFSC_ENABLE_NFSCO

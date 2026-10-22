@@ -30,6 +30,7 @@ Two filters keep data out of the catalog (as for d3dx9_26 in Most Wanted):
 Everything written here is derived from the binaries and stays in work/ and
 src/recomp/gen_* (gitignored). The original files are never written.
 """
+import hashlib
 import json
 import os
 import pathlib
@@ -45,13 +46,22 @@ for sub in ("pe", "disasm"):
 
 # name: (source, guest base, output prefix)
 MODULES = {
-    "d3dx9_30.dll": (SYSTEM / "d3dx9_30.dll", 0x00D00000, "d3dx_"),
+    "d3dx9_30.dll": (pathlib.Path(os.environ.get("NFSC_D3DX_PATH", str(SYSTEM / "d3dx9_30.dll"))), 0x00D00000, "d3dx_"),
     "msvcr71.dll": (GAME / "msvcr71.dll", 0x00F60000, "msvcr_"),
     "msvcp71.dll": (GAME / "msvcp71.dll", 0x00FC0000, "msvcp_"),
     "server.dll": (GAME / "server.dll", 0x01270000, "server_"),
 }
-# Modules whose imports of lifted DLLs must resolve to real (non-excluded) code.
-IMPORTERS = [GAME / "NFSC.exe"] + [MODULES[n][0] for n in MODULES]
+# Only modules selected for this build may impose import/export
+# requirements. The default offline path explicitly omits server.dll.
+# In particular, never require or parse LAN/online DLLs for single-player.
+# Keep the importer set stable when --resume asks for only missing DLLs.
+# msvcp71 may depend on msvcr71 even when the latter lift already finished.
+# The EA LAN DLL is considered only when explicitly selected.
+SELECTED = [n for n in sys.argv[1:] if n != "--resume"]
+BASE_IMPORTERS = ("d3dx9_30.dll", "msvcr71.dll", "msvcp71.dll")
+IMPORTERS = [GAME / "NFSC.exe"] + [MODULES[n][0] for n in BASE_IMPORTERS]
+if "server.dll" in SELECTED:
+    IMPORTERS.append(MODULES["server.dll"][0])
 
 NOT_CODE = {'arpl', 'insb', 'insd', 'insw', 'outsw', 'outsb', 'outsd', 'bound', 'daa', 'das', 'aaa', 'aas',
             'aam', 'aad', 'popaw', 'pushaw', 'sldt', 'lcall', 'ljmp', 'into', 'salc', 'hlt', 'cli', 'sti',
@@ -120,26 +130,127 @@ def not_code(image, catalog_path, base, dll, out_path):
     print(f"[*] {dll}: {len(bad)} catalogued starts decode data; {len(wanted)} imported exports are clean")
 
 
-def lift(name):
+
+def _sha256(path):
+    """Streaming binary digest; avoid loading DLLs into memory a second time."""
+    hash_value = hashlib.sha256()
+    with path.open("rb") as stream:
+        for part in iter(lambda: stream.read(1024 * 1024), b""):
+            hash_value.update(part)
+    return hash_value.hexdigest()
+
+
+def _json_valid(path, key=None):
+    try:
+        obj = json.loads(path.read_text(encoding="utf-8"))
+        return key is None or (isinstance(obj, dict) and key in obj)
+    except (OSError, ValueError):
+        return False
+
+
+def _checkpoint_id(source, base, name):
+    # Importers affect the required-export validation; do not reuse one
+    # module's catalog from a different game version or recompiler.
+    dependencies = [source, *IMPORTERS, ROOT / "scripts/prepare_module.py",
+                    ROOT / "scripts/prepare_modules.py",
+                    ROOT / "scripts/run_lift.py", ROOT / "scripts/mw_lifter.py",
+                    PCRECOMP / "tools/pe/pe_analyze.py",
+                    PCRECOMP / "tools/disasm/disasm32.py",
+                    PCRECOMP / "tools/lift/lift32.py"]
+    value = hashlib.sha256(f"{name}:{base:08X}:v2".encode("ascii"))
+    for item in dependencies:
+        if not item.is_file():
+            raise FileNotFoundError(f"Missing dependency for {name}: {item}")
+        value.update(item.name.encode("utf-8"))
+        value.update(_sha256(item).encode("ascii"))
+    return value.hexdigest()
+
+
+def lift_complete(generated, prefix):
+    stats = generated / f"{prefix}lift_stats.json"
+    dispatch = generated / f"{prefix}recomp_dispatch.c"
+    if not (_json_valid(stats, "functions") and dispatch.is_file()):
+        return False
+    data = json.loads(stats.read_text(encoding="utf-8"))
+    count = len(list(generated.glob(f"{prefix}recomp_[0-9][0-9][0-9][0-9].c")))
+    return (data.get("functions", 0) > 0 and
+            data.get("lift_failures", 1) == 0 and
+            data.get("files") == count)
+
+
+def lift(name, resume=False):
     source, base, prefix = MODULES[name]
     if not source.is_file():
         sys.exit(f"{name}: {source} not found (use your own copy; nothing is downloaded)")
     tag = prefix.rstrip("_")
     work = ROOT / "work" / "modules" / tag
     work.mkdir(parents=True, exist_ok=True)
-    image, seeds, probed = work / f"{prefix}relocated.dll", work / "seeds.json", work / "seeds_probed.json"
-    catalog, data = work / "catalog.json", work / "not_code.json"
-    run("prepare_module.py", source, hex(base), image, seeds)
-    probe_seeds(image, seeds, probed)
-    run("run_lift.py", "catalog", image, probed, catalog, "--seeds-only")
-    not_code(image, catalog, base, name, data)
-    run("run_lift.py", "lift", image, catalog, ROOT / "src/recomp" / f"gen_{tag}", "--prefix", prefix, "--exclude", data)
+    image = work / f"{prefix}relocated.dll"
+    seeds, probed = work / "seeds.json", work / "seeds_probed.json"
+    catalog, excluded = work / "catalog.json", work / "not_code.json"
+    generated = ROOT / "src/recomp" / f"gen_{tag}"
+    manifest = work / "pipeline_checkpoint.json"
+    fingerprint = _checkpoint_id(source, base, name)
+
+    checkpoint = {}
+    if resume and _json_valid(manifest, "fingerprint"):
+        checkpoint = json.loads(manifest.read_text(encoding="utf-8"))
+    previous = checkpoint.get("completed", []) if checkpoint.get("fingerprint") == fingerprint else []
+    stages = []
+
+    def save(stage):
+        stages.append(stage)
+        value = {"fingerprint": fingerprint, "source_sha256": _sha256(source),
+                 "completed": list(stages)}
+        tmp = manifest.with_suffix(".tmp")
+        tmp.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+        tmp.replace(manifest)
+        print(f"CHECKPOINT {name}: {stage}", flush=True)
+
+    def skip(stage, valid):
+        if resume and stage in previous and valid:
+            print(f"RESUME {name}: {stage} completed", flush=True)
+            stages.append(stage)
+            return True
+        return False
+
+    # Any invalid intermediate result invalidates that stage and successors.
+    if not skip("relocated", image.is_file() and _json_valid(seeds)):
+        run("prepare_module.py", source, hex(base), image, seeds)
+        previous = []
+        save("relocated")
+
+    if not skip("probed", _json_valid(probed)):
+        probe_seeds(image, seeds, probed)
+        previous = []
+        save("probed")
+
+    if not skip("catalogued", _json_valid(catalog, "functions")):
+        run("run_lift.py", "catalog", image, probed, catalog, "--seeds-only")
+        if not _json_valid(catalog, "functions"):
+            raise RuntimeError(f"{name}: catalog output is missing/invalid")
+        previous = []
+        save("catalogued")
+
+    if not skip("classified", _json_valid(excluded)):
+        not_code(image, catalog, base, name, excluded)
+        if not _json_valid(excluded):
+            raise RuntimeError(f"{name}: code exclusion list missing/invalid")
+        previous = []
+        save("classified")
+
+    if not skip("lifted", lift_complete(generated, prefix)):
+        run("run_lift.py", "lift", image, catalog, generated,
+            "--prefix", prefix, "--exclude", excluded)
+        if not lift_complete(generated, prefix):
+            raise RuntimeError(f"{name}: generated C files/manifest incomplete")
+        save("lifted")
 
 
 if __name__ == "__main__":
-    names = sys.argv[1:] or list(MODULES)
+    names = SELECTED or list(MODULES)
     unknown = [n for n in names if n not in MODULES]
     if unknown:
         sys.exit(f"unknown module(s) {unknown}; known: {list(MODULES)}")
     for n in names:
-        lift(n)
+        lift(n, resume="--resume" in sys.argv[1:])

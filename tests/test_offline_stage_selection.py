@@ -1,0 +1,142 @@
+"""Test offline stage isolation without the original copyrighted game files."""
+import hashlib
+import importlib
+from pathlib import Path
+import struct
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+
+SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+sys.path.insert(0, str(SCRIPTS))
+offline = importlib.import_module("prepare_offline")
+
+
+def fake_pe(path, base, image_size):
+    """Tiny test-only x86 PE header; it is not a real game or runnable binary."""
+    raw = bytearray(4096)
+    raw[:2] = b"MZ"
+    struct.pack_into("<I", raw, 0x3C, 0x80)
+    raw[0x80:0x84] = b"PE\0\0"
+    struct.pack_into("<H", raw, 0x84, 0x14C)
+    struct.pack_into("<H", raw, 0x98, 0x10B)
+    struct.pack_into("<I", raw, 0x98 + 28, base)
+    struct.pack_into("<I", raw, 0x98 + 56, image_size)
+    path.write_bytes(raw)
+
+
+class OfflineStageIsolation(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.game = self.root / "game"
+        self.game.mkdir()
+        (self.game / "SOUND").mkdir()
+        (self.game / "SOUND" / "test.abk").write_bytes(b"TEST_ONLY")
+        layouts = {
+            "NFSC.exe": (0x400000, 0x82B34E),
+            "d3dx9_30.dll": (0x400000, 0x260000),
+            "msvcr71.dll": (0x7C340000, 0x56000),
+            "msvcp71.dll": (0x7C3A0000, 0x7B000),
+        }
+        for name, (base, size) in layouts.items():
+            fake_pe(self.game / name, base, size)
+        self.reference = {
+            "executable": "NFSC.exe",
+            "sha256": hashlib.sha256((self.game / "NFSC.exe").read_bytes()).hexdigest(),
+        }
+
+    def simulate(self, stage, resume=False, audio_hash="fixture-only"):
+        calls = []
+        results = {"sound_banks": {
+            "total_banks": 1, "unique_code_blocks": 1,
+            "patched_call_references_verified": 0,
+        }}
+        def fake_run(env, *args):
+            calls.append(args)
+            if args[1] == "scripts/abk_module.py":
+                Path(args[5]).write_text("/* TEST-ONLY ABK block marker */", encoding="utf-8")
+            if args[1] == "scripts/run_lift.py" and args[2] == "lift" and "abk_" in args:
+                generated = Path(args[5])
+                generated.mkdir(parents=True, exist_ok=True)
+                (generated / "abk_recomp_0000.c").write_text(
+                    "/* TEST-ONLY fake C */", encoding="utf-8")
+                (generated / "abk_recomp_dispatch.c").write_text(
+                    "/* TEST-ONLY fake dispatch */", encoding="utf-8")
+                (generated / "abk_lift_stats.json").write_text(
+                    '{"functions": 1, "files": 1, "lift_failures": 0}', encoding="utf-8")
+
+        with patch.object(offline, "ROOT", self.root), \
+             patch.object(offline, "REFERENCE", self.reference), \
+             patch.object(offline, "PCRECOMP_FILES", ()), \
+             patch.object(offline, "verify_offline_assets", return_value=results), \
+             patch.object(offline, "audio_input_fingerprint", return_value=audio_hash), \
+             patch.object(offline, "run", side_effect=fake_run), \
+             patch.object(sys, "argv", ["prepare_offline.py", "--game-root", str(self.game),
+                                        "--stage", stage] + (["--resume"] if resume else [])):
+            offline.main()
+        return [str(call[1]) for call in calls]
+
+    def test_audio_resume_fingerprint_changes_with_bank_or_generator(self):
+        bank = self.game / "SOUND" / "test.abk"
+        src = self.root / "src"
+        filenames = ("scripts/abk_module.py", "scripts/run_lift.py",
+                     "scripts/mw_lifter.py", "config/overrides.txt",
+                     "config/exclude.txt", "config/hooks.txt")
+        for filename in filenames:
+            file = self.root / filename
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.write_text("fake test-only source", encoding="utf-8")
+        pcrecomp = self.root / "toolchain"
+        lifter = pcrecomp / "tools/lift/lift32.py"
+        lifter.parent.mkdir(parents=True, exist_ok=True)
+        lifter.write_text("fake lift", encoding="utf-8")
+        with patch.object(offline, "ROOT", self.root):
+            first = offline.audio_input_fingerprint(self.game, self.reference["sha256"],
+                                                    [bank], pcrecomp)
+            self.assertEqual(first, offline.audio_input_fingerprint(
+                self.game, self.reference["sha256"], [bank], pcrecomp))
+            bank.write_bytes(bank.read_bytes() + b"changed")
+            second = offline.audio_input_fingerprint(self.game, self.reference["sha256"],
+                                                     [bank], pcrecomp)
+            self.assertNotEqual(first, second)
+            lifter.write_text("new fake lifter version", encoding="utf-8")
+            third = offline.audio_input_fingerprint(self.game, self.reference["sha256"],
+                                                    [bank], pcrecomp)
+            self.assertNotEqual(second, third)
+
+    def test_audio_stage_skips_only_matching_complete_manifest(self):
+        self.assertEqual(len(self.simulate("audio")), 3)
+        self.assertEqual(self.simulate("audio", resume=True), [])
+        self.assertEqual(len(self.simulate("audio", resume=True,
+                                           audio_hash="bank-version-changed")), 3)
+
+    def test_only_game_stage_runs_main_lifter(self):
+        commands = self.simulate("game")
+        self.assertEqual(commands, ["scripts/analyze_binary.py",
+                                    "scripts/data_seeds.py",
+                                    "scripts/run_lift.py",
+                                    "scripts/code_seeds.py",
+                                    "scripts/run_lift.py",
+                                    "scripts/run_lift.py"])
+
+    def test_only_audio_stage_runs_abk(self):
+        self.assertEqual(self.simulate("audio"),
+                         ["scripts/abk_module.py", "scripts/run_lift.py",
+                          "scripts/run_lift.py"])
+
+    def test_only_dll_stage_runs_module_processor(self):
+        self.assertEqual(self.simulate("dlls"), ["scripts/prepare_modules.py"])
+
+    def test_all_stages_are_game_audio_dll(self):
+        commands = self.simulate("all")
+        self.assertEqual(len(commands), 10)
+        self.assertEqual(commands[6:9],
+                         ["scripts/abk_module.py", "scripts/run_lift.py", "scripts/run_lift.py"])
+        self.assertEqual(commands[9], "scripts/prepare_modules.py")
+
+
+if __name__ == "__main__":
+    unittest.main()

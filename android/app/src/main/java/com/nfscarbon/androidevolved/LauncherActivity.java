@@ -223,7 +223,7 @@ public final class LauncherActivity extends Activity {
         optionsList.addView(optionRow(tr("Idioma del juego"), languageLabel(), this::chooseLanguage));
         for (GameOptions.Option option : GameOptions.ALL)
             optionsList.addView(optionRow(tr(option.title), tr(option.label(GameOptions.get(this, option.key))), () -> chooseOption(option)));
-        optionsList.addView(optionRow(tr("Servidor online"), GameOptions.onlineServer(this), this::chooseOnlineServer));
+        // Offline-first milestone: hide online server configuration until NFSCO is enabled.
         optionsList.addView(optionRow(tr("Buscar actualizaciones"),
                 checkingUpdates ? tr("Comprobando GitHub…") : tr("Versión %s", ReleaseUpdates.installed(this)), () -> checkUpdates(true)));
         optionsList.addView(optionRow(tr("Reportar un problema"), tr("Log completo a GitHub"), () -> prepareReport(null)));
@@ -525,7 +525,7 @@ public final class LauncherActivity extends Activity {
                 .putExtra("backBuffers", Integer.parseInt(GameOptions.get(this, GameOptions.LATENCY)))
                 .putExtra("cpuTextures", GameOptions.get(this, GameOptions.TEXTURES).equals("cpu"))
                 .putExtra("padJoystick", GameOptions.get(this, GameOptions.GAMEPAD).equals("directinput"))
-                .putExtra("onlineServer", GameOptions.onlineServer(this))
+                // Offline single-player mode has no online server setting.
                 .putExtra("driverLoader", loader));
     }
 

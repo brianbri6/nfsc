@@ -686,9 +686,11 @@ extern "C" const uint32_t server_recomp_dispatch_count;
 // Lifted DLLs (scripts/prepare_modules.py): d3dx9_30, msvcr71 and msvcp71.
 extern "C" const recomp_dispatch_entry_t d3dx_recomp_dispatch_table[],msvcr_recomp_dispatch_table[],msvcp_recomp_dispatch_table[];
 extern "C" const uint32_t d3dx_recomp_dispatch_count,msvcr_recomp_dispatch_count,msvcp_recomp_dispatch_count;
-// NFSCO (scripts/prepare_nfsco.py): palmont.dll, logging.dll and the trampoline pool.
+#ifdef NFSC_ENABLE_NFSCO
+// Optional NFSCO tables (generated only when explicitly building online mode).
 extern "C" const recomp_dispatch_entry_t palmont_recomp_dispatch_table[],logging_recomp_dispatch_table[],pool_recomp_dispatch_table[];
 extern "C" const uint32_t palmont_recomp_dispatch_count,logging_recomp_dispatch_count,pool_recomp_dispatch_count;
+#endif
 namespace {
 // Every indirect call and virtual method resolves its target here, so use an
 // open-addressing table (built once, read-only afterwards) instead of a binary
@@ -712,9 +714,11 @@ struct DispatchHash {
         add(d3dx_recomp_dispatch_table,d3dx_recomp_dispatch_count);
         add(msvcr_recomp_dispatch_table,msvcr_recomp_dispatch_count);
         add(msvcp_recomp_dispatch_table,msvcp_recomp_dispatch_count);
+#ifdef NFSC_ENABLE_NFSCO
         add(palmont_recomp_dispatch_table,palmont_recomp_dispatch_count);
         add(logging_recomp_dispatch_table,logging_recomp_dispatch_count);
         add(pool_recomp_dispatch_table,pool_recomp_dispatch_count);
+#endif
 #ifdef NFS_SERVER_DLL
         add(server_recomp_dispatch_table,server_recomp_dispatch_count);
 #endif
@@ -825,7 +829,11 @@ std::string connectGuestRuntime(const char* executable) {
         fresh.load();
         bindDeferredModuleImports(0);
         fresh.load();
+#ifdef NFSC_ENABLE_NFSCO
         startNfsco();
+#else
+        NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","Offline single-player boot; bypassing NFSCO OnAttach");
+#endif
         fresh.load();
         NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","Entering actual lifted CRT entry %08x",entry);
         uint32_t result=callGuest(entry,{});

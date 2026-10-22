@@ -18,7 +18,24 @@ set(NFSU2_ROOT "${NFS_ROOT}/../nfsu2-recompiled" CACHE PATH "nfsu2-recompiled ch
 set(DXVK_SOURCE "${NFSU2_ROOT}/build/dxvk-source" CACHE PATH "Prepared DXVK native source")
 set(DXVK_ANDROID_STATIC ON CACHE BOOL "Link into application" FORCE)
 add_subdirectory("${NFSU2_ROOT}/ports/dxvk_android" "${CMAKE_CURRENT_BINARY_DIR}/dxvk")
+# CI-only, non-playable link test: replaces copyrighted game-generated C
+# with empty dispatch tables to test the native Android/DXVK runtime.
+option(NFSC_SMOKE_STUBS "CI only: link host runtime with non-playable placeholder game code" OFF)
+set(SERVER_GEN_DIR "${NFS_ROOT}/src/recomp/gen_server")
+if(NFSC_SMOKE_STUBS)
+    set(GEN_DIR "${NFS_ROOT}/src/recomp/gen")
+    set(ANDROID_GEN_SOURCES "${NFS_ROOT}/scripts/offline_native_smoke.c")
+    set(SERVER_GEN_SOURCES)
+    message(WARNING "NFSC_SMOKE_STUBS=ON: test-only, NON-PLAYABLE artifact")
+else()
 set(GEN_DIR "${NFS_ROOT}/src/recomp/gen")
+option(NFSC_SYNTHETIC_CI "CI only: allow tagged non-playable synthetic generated C" OFF)
+if(EXISTS "${GEN_DIR}/SYNTHETIC_CI_ONLY" AND NOT NFSC_SYNTHETIC_CI)
+    message(FATAL_ERROR "NON-PLAYABLE CI-generated C detected. Delete synthetic src/recomp/gen_* trees and regenerate real Carbon game code.")
+endif()
+if(NFSC_SYNTHETIC_CI AND NOT EXISTS "${GEN_DIR}/SYNTHETIC_CI_ONLY")
+    message(FATAL_ERROR "NFSC_SYNTHETIC_CI requested without synthetic marker. Do not enable for real builds.")
+endif()
 file(GLOB GEN_SOURCES CONFIGURE_DEPENDS "${GEN_DIR}/recomp_*.c")
 if(NOT GEN_SOURCES)
     message(FATAL_ERROR "Generate the local game C first; see the project README")
@@ -50,20 +67,30 @@ endforeach()
 #            and Android has no D3DX.
 #   msvcr    msvcr71.dll and msvcp71.dll: Carbon links the Visual C++ 7.1
 #   msvcp    runtime dynamically.
-#   palmont, logging, pool  NFSCO (scripts/prepare_nfsco.py): the mod, its logger
-#            and its hook trampolines.
-# Do not silently produce an APK with a missing module.
+#   palmont, logging, pool  NFSCO (scripts/prepare_nfsco.py): optional online
+#            mod. Keep it separate from the original single-player game.
+# The default APK must require only the original PC game, not NFSCO captures.
+option(NFSC_ENABLE_NFSCO "Link translated NFSCO online mod (requires NFSCO capture)" OFF)
+option(NFSC_ENABLE_LAN_SERVER "Link the optional EA LAN server DLL" OFF)
 set(SERVER_GEN_DIR "${NFS_ROOT}/src/recomp/gen_server")
-foreach(module server d3dx msvcr msvcp palmont logging pool)
+set(REQUIRED_GUEST_MODULES d3dx msvcr msvcp)
+if(NFSC_ENABLE_LAN_SERVER)
+    list(APPEND REQUIRED_GUEST_MODULES server)
+endif()
+if(NFSC_ENABLE_NFSCO)
+    list(APPEND REQUIRED_GUEST_MODULES palmont logging pool)
+endif()
+foreach(module IN LISTS REQUIRED_GUEST_MODULES)
     file(GLOB module_sources CONFIGURE_DEPENDS "${NFS_ROOT}/src/recomp/gen_${module}/${module}_recomp_*.c")
     if(NOT module_sources)
-        message(FATAL_ERROR "No ${module} code in src/recomp/gen_${module}: run scripts/prepare_modules.py")
+        message(FATAL_ERROR "No ${module} code in src/recomp/gen_${module}; generate this module before building")
     endif()
     list(APPEND ANDROID_GEN_SOURCES ${module_sources})
     if(module STREQUAL "server")
         set(SERVER_GEN_SOURCES ${module_sources})
     endif()
 endforeach()
+message(STATUS "NFSC single-player build: NFSCO=${NFSC_ENABLE_NFSCO} LAN server=${NFSC_ENABLE_LAN_SERVER}")
 # x86 routines of EA's sound banks, lifted from the local Sound/**.abk
 # (scripts/abk_module.py + run_lift.py --prefix abk_; see src/runtime/nfs_abk.h).
 set(ABK_GEN_DIR "${NFS_ROOT}/src/recomp/gen_abk")
@@ -72,6 +99,7 @@ if(NOT ABK_GEN_SOURCES)
     message(FATAL_ERROR "No sound-bank code in ${ABK_GEN_DIR}: run scripts/abk_module.py and run_lift.py --prefix abk_")
 endif()
 list(APPEND ANDROID_GEN_SOURCES ${ABK_GEN_SOURCES})
+endif()  # NFSC_SMOKE_STUBS
 set_property(GLOBAL PROPERTY JOB_POOLS guest_compile=4)
 add_library(nfs_guest OBJECT ${ANDROID_GEN_SOURCES})
 set_property(TARGET nfs_guest PROPERTY JOB_POOL_COMPILE guest_compile)
@@ -120,6 +148,12 @@ target_include_directories(nfsc_android SYSTEM PRIVATE "${DXVK_SOURCE}/include/n
   "${DXVK_SOURCE}/include/native/windows" "${DXVK_SOURCE}/include/native/directx")
 target_include_directories(nfsc_android PRIVATE "${PCRECOMP}/runtime/recomp32" "${PCRECOMP}/runtime/win32hle" "${NFS_ROOT}/src/runtime" "${NFSU2_ROOT}/src/runtime")
 target_compile_definitions(nfsc_android PRIVATE RECOMP_STRICT_ICALL RECOMP_X87_WINDOW)
+if(NFSC_SMOKE_STUBS)
+    target_compile_definitions(nfsc_android PRIVATE NFSC_SMOKE_STUBS)
+endif()
+if(NFSC_ENABLE_NFSCO)
+    target_compile_definitions(nfsc_android PRIVATE NFSC_ENABLE_NFSCO)
+endif()
 if(SERVER_GEN_SOURCES)
     target_compile_definitions(nfsc_android PRIVATE NFS_SERVER_DLL)
 endif()
