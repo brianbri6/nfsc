@@ -10,6 +10,8 @@ on:
       - 'scripts/verify_offline_assets.py'
       - 'scripts/prepare_modules.py'
       - 'tests/test_offline_module_resume.py'
+      - 'scripts/run_lift.py'
+      - 'tests/test_run_lift_seeds.py'
   workflow_dispatch:
 
 permissions:
@@ -45,6 +47,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_offline_module_resume.py' -v
       - name: Prepare open-source dependencies
         run: python scripts/bootstrap_offline.py --setup
+      - name: Regression test low-memory function seed restoration
+        run: python -m unittest discover -s tests -p 'test_run_lift_seeds.py' -v
       - name: Verify prepared dependencies
         run: |
           test -f ../pcrecomp/runtime/recomp32/recomp_types.h
