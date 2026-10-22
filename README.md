@@ -35,11 +35,22 @@ NDK 28.2.13676358, CMake 3.30.5, Git, Java and the Vulkan shader tools
 python scripts/bootstrap_offline.py --game-root "../Need for Speed Carbon" --all
 ```
 
-You can run each stage separately using `--setup`, `--generate`, and `--build`.
+You can run each stage separately using `--setup`, `--generate`, and `--build`. Add `--resume` with `--generate` to reuse finished code-generation stages; `--all` automatically uses verified resume mode. A main game lift is reused only when its analysis manifest matches the exact stock executable SHA-256, dispatch output and C file count.
 The helper initializes NFSU2's libadrenotools submodule, pins the pcrecomp
 patch base, checks DXVK Native's exact revision, prepares the Android DXVK
 source and 54 shader binaries, and invokes `gradlew assembleDebug`. Existing
 local tool checkouts are preserved.
+
+### Android host-only link smoke test (not playable)
+
+The workflow [offline-native-smoke.yml](.github/workflows/offline-native-smoke.yml)
+compiles the Java launcher, Android host runtime, and DXVK native bridge with
+empty CI-only guest dispatch symbols. The public test intentionally omits all
+original Carbon executable, sound-bank and runtime-DLL code and **cannot play
+the game**. Do not publish, install for gameplay, or label this test APK as
+the actual Carbon port. The normal `assembleDebug` / `--all` path uses real
+generated game C; these CI placeholder symbols are enabled *only* with
+`-PnfsSmokeStub=ON` (or `-DNFSC_SMOKE_STUBS=ON` in CMake).
 
 **Status:** Input validation and source changes are verified, but C generation,
 APK compilation and offline gameplay are NOT yet verified. A local build host
