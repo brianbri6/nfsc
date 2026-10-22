@@ -8,6 +8,49 @@ It is **not** an emulator: every function of the original PC executable is trans
 
 No game files are included. You need your own copy of the PC game. Generated C code, analysis copies and logs are produced locally and never committed.
 
+## Build on Windows with Android Studio
+
+To build the **real offline game**, check out the
+[`offline-singleplayer-bootstrap` branch](https://github.com/brianbri6/nfsc/tree/offline-singleplayer-bootstrap)
+and extract your original verified Carbon files locally. Keep sibling folders
+`nfsc/` and `Need for Speed Carbon/` in one workspace. Install Python 3.11+
+(x64), Git for Windows, LunarG Vulkan SDK command line shader utilities
+(`glslangValidator` and `spirv-val` in PATH), and in Android Studio install
+SDK Platform 35, Android NDK 28.2.13676358, and CMake 3.30.5.
+
+From PowerShell in the `nfsc` repository directory:
+
+```powershell
+py -3 scripts\bootstrap_offline.py --check
+py -3 scripts\bootstrap_offline.py --setup
+py -3 scripts\bootstrap_offline.py --generate --stage audio --resume
+py -3 scripts\bootstrap_offline.py --generate --stage dlls --resume
+py -3 scripts\bootstrap_offline.py --generate --stage game --resume
+```
+
+**Important:** the prior 52,931-function game C lift exists only in the
+earlier execution workspace, not in the public GitHub repository. On a
+fresh Windows checkout, the `--stage game` command must generate the
+original game C from the local `NFSC.exe`. The game DLL and audio outputs
+are also generated on the user's computer, not supplied by Android Studio.
+
+Open **`nfsc/android`**, not the workspace root, as the Android Studio
+project. Select Build > Build Bundle(s) / APK(s) > Build APK(s), or use the
+Android Studio terminal:
+
+```powershell
+cd android
+.\gradlew.bat assembleDebug -PnfsAbi=arm64-v8a -PnfsGuestLto=OFF
+```
+
+The APK, **if compilation succeeds**, is
+`android/app/build/outputs/apk/debug/app-debug.apk`.
+Real generated C is required: never turn on `nfsSmokeStub` or
+`nfsSyntheticCI` for this APK. ThinLTO defaults to OFF for Android
+Studio GUI builds to reduce peak memory until the first real APK links.
+Please preserve the exact first error and console log if an operation fails;
+do not copy game files into the public GitHub repository.
+
 ### Resume independent generated-code stages
 
 On a machine with the original verified PC files and the patched pcrecomp
