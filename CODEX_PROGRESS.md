@@ -141,6 +141,44 @@ Environment blocker reconfirmed:
   necessary for this development stage. Other game assets can stay on the
   user's computer/phone for later testing.
 
+## Network-isolation workaround — 2026-10-22 (latest)
+
+**SUCCESS:** GitHub Actions runner can fetch public dependencies even though
+the chat container cannot directly use DNS, GitHub, curl or git clone.
+
+- Workflow: .github/workflows/offline-toolchain.yml.
+- Successful GitHub run: https://github.com/brianbri6/nfsc/actions/runs/39789915948.
+- Runner cloned pcrecomp @ 35548b8, applied NFSU2 patches, cloned the
+  nfsu2-recompiled submodules, prepared DXVK Native pinned
+  c8dc91fabd00cac11d697ccf07426e798393cd40 and generated 54
+  Vulkan shaders; public dependency checks all PASSED.
+- Public-only source and wheels were archived to a 26 MiB GitHub Actions
+  artifact nfsc-public-offline-toolchain (ID 12431440450).
+- The GitHub connector downloaded the Actions artifact into
+  /mnt/data/nfsc-public-offline-toolchain.zip. It was extracted to
+  /mnt/data/nfsc-build-workspace/{nfsc,pcrecomp,nfsu2-recompiled,offline_wheels}.
+- Capstone 5 and pefile installed OFFLINE from these wheels.
+- Re-ran: PYTHONPATH=/mnt/data/nfsc-build-workspace/.python
+  python scripts/prepare_offline.py --game-root
+  '/mnt/data/nfsc_input/Need for Speed Carbon' --check-only
+  -> original game and all sound-call checks PASSED.
+- Started full original executable analysis and C code generator. It produced
+  work/speed.analysis.exe, work/binary.json and work/seeds_data.json.
+  20,587 aligned data pointers decoded as function entries.
+  At this checkpoint the initial function catalog is still computing;
+  log: /mnt/data/nfsc-build-workspace/nfsc/work/offline_generation.log.
+- The original game archives remain only in the execution workspace. The
+  GitHub artifact contains public tooling/source ONLY, NO copyrighted game data.
+- A second workflow (.github/workflows/offline-android-sdk.yml) is attempting
+  to bring a public Android SDK/NDK/Gradle build cache into this offline
+  workspace. Initial run failed because setup-android@v3 requested the
+  removed SDK 'tools' package; changed to the runner's cmdline-tools/16.0
+  sdkmanager and re-triggered, pending verification.
+- No APK has been produced yet. Do not claim compilation success without
+  checking its actual existence.
+
+The workaround does not require the user to re-upload game files.
+
 ## Next steps
 1. Game and sound binary inputs are verified; fetch pcrecomp + nfsu2-recompiled and run offline --check-only on the build host.
 2. Run prepare_offline.py to generate lifted C and required DLL/sound modules.
