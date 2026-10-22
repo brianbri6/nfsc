@@ -18,6 +18,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+from verify_offline_assets import verify as verify_offline_assets
+
 ROOT = Path(__file__).resolve().parent.parent
 REFERENCE = json.loads((ROOT / "config" / "reference.json").read_text(encoding="utf-8"))
 REQUIRED_DLLS = ("msvcr71.dll", "msvcp71.dll")
@@ -90,6 +92,13 @@ def main():
     print(f"Verified original game: {exe}\nVerified D3DX: {d3dx}\nVerified sound banks: {len(sound_banks)}", flush=True)
     if len(sound_banks) != 285:
         print("Warning: reference game has 285 .abk sound banks; check that SOUND is complete.", flush=True)
+    # Validate the embedded x86 sound callbacks against the exact stock
+    # executable's AEMS table before invoking the expensive pcrecomp lift.
+    assets = verify_offline_assets(game, d3dx)
+    sound = assets["sound_banks"]
+    print(f"Validated {sound['total_banks']} sound banks, "
+          f"{sound['unique_code_blocks']} unique x86 blocks and "
+          f"{sound['patched_call_references_verified']} sound call references", flush=True)
     if args.check_only:
         print("Offline game input check passed; no tools needed and no files generated.")
         return
