@@ -4,7 +4,7 @@ Static recompilation of the **PC version** of *Need for Speed: Carbon* (2006, `N
 
 It is **not** an emulator: every function of the original PC executable is translated ahead of time from x86 to C with [pcrecomp](https://github.com/sp00nznet/pcrecomp) (modified) and compiled with the Android NDK.
 
-> **Status: early development, not playable yet.** The game code, its runtime DLLs and the sound-bank routines are translated; the Android app is being brought up.
+> **Status: early development, not playable yet.** The original executable's C lift was completed (52,931 functions); required DLL and sound-bank generation is still being finalized. Android native compilation with test fixtures has passed, but no playable APK exists.
 
 No game files are included. You need your own copy of the PC game. Generated C code, analysis copies and logs are produced locally and never committed.
 
@@ -52,11 +52,23 @@ the actual Carbon port. The normal `assembleDebug` / `--all` path uses real
 generated game C; these CI placeholder symbols are enabled *only* with
 `-PnfsSmokeStub=ON` (or `-DNFSC_SMOKE_STUBS=ON` in CMake).
 
-**Status:** Input validation and source changes are verified, but C generation,
-APK compilation and offline gameplay are NOT yet verified. A local build host
-with network access and the Android toolchain is still required. The remaining
-full game resource folders can be copied directly to the phone; they do not
-need to be uploaded to this repository or chat.
+**Status:** Input validation, the main game's C lift and Android host
+compilation with test fixtures have been verified. The actual combined
+Carbon C + DLL + sound-bank APK has NOT been compiled or play-tested.
+The remaining full game resource folders can be copied directly to the
+phone; they do not need to be uploaded to this repository or chat.
+
+### Full generated-C integration test (also not playable)
+
+The separate workflow [offline-generated-ci.yml](.github/workflows/offline-generated-ci.yml)
+compiles all five module categories (EXE, D3DX, MSVCR, MSVCP and ABK)
+through the **normal** CMake generated-source path using synthetic,
+copyright-free C fixtures. It checks C-object compilation and native
+Android linking independently of the host-only smoke mode.
+
+The fixtures are deliberately labeled `SYNTHETIC_CI_ONLY`; normal builds
+fail if this marker is present. This workflow tests the build wiring,
+**not Carbon gameplay**. It does not produce a releasable game.
 
 ## Offline single-player first (current build goal)
 
