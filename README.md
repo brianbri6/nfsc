@@ -8,6 +8,34 @@ It is **not** an emulator: every function of the original PC executable is trans
 
 No game files are included. You need your own copy of the PC game. Generated C code, analysis copies and logs are produced locally and never committed.
 
+### Resume independent generated-code stages
+
+On a machine with the original verified PC files and the patched pcrecomp
+toolchain, each stage can now finish independently instead of rebuilding the
+game after a D3DX crash:
+
+```bash
+# Preserve completed original NFSC.exe lift; finish audio callbacks first:
+python scripts/prepare_offline.py --game-root "../Need for Speed Carbon" --stage audio --resume
+
+# Finish just the required stock runtime DLLs, checkpointing each sub-stage:
+python scripts/prepare_offline.py --game-root "../Need for Speed Carbon" --stage dlls --resume
+
+# Recheck/reuse the 52,931-function main Carbon lift:
+python scripts/prepare_offline.py --game-root "../Need for Speed Carbon" --stage game --resume
+
+# Only once all three have succeeded:
+python scripts/bootstrap_offline.py --game-root "../Need for Speed Carbon" --build
+```
+
+The bootstrap helper also supports `--generate --stage audio|dlls|game --resume`.
+For first-boot APKs, ThinLTO is off by default to reduce the linker memory
+footprint; use `--lto` after an actual game build has succeeded.
+
+**Note:** These stages operate on the original copyrighted files stored only
+on your local build machine, not the public GitHub Actions runners. Actions
+tests the open-source toolchain and separate synthetic fixtures only.
+
 ## Verified game inputs and offline build helper
 
 The user's two-part Carbon archive (ai.part1.rar / ai.part2.rar) contains
