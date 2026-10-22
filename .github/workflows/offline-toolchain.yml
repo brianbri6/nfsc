@@ -1,0 +1,50 @@
+name: Carbon offline build toolchain check
+
+on:
+  push:
+    branches: [offline-singleplayer-bootstrap]
+    paths:
+      - '.github/workflows/offline-toolchain.yml'
+      - 'scripts/bootstrap_offline.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-public-toolchain:
+    name: Set up pcrecomp, DXVK and Android dependencies
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Vulkan shader tools
+        run: sudo apt-get update && sudo apt-get install -y glslang-tools spirv-tools
+      - name: Set Git identity for patch series
+        run: |
+          git config --global user.name 'NFS Carbon toolchain CI'
+          git config --global user.email 'noreply@users.noreply.github.com'
+      - name: Check network without touching game files
+        run: |
+          git ls-remote https://github.com/sp00nznet/pcrecomp.git HEAD
+          git ls-remote https://github.com/codepdbh/nfsu2-recompiled.git HEAD
+          git ls-remote https://github.com/Joshua-Ashton/dxvk-native.git refs/tags/native-1.9.2b
+      - name: Check Python source syntax
+        run: python -m compileall -q scripts
+      - name: Prepare open-source dependencies
+        run: python scripts/bootstrap_offline.py --setup
+      - name: Verify prepared dependencies
+        run: |
+          test -f ../pcrecomp/runtime/recomp32/recomp_types.h
+          test -f ../nfsu2-recompiled/third_party/libadrenotools/CMakeLists.txt
+          test -f ../nfsu2-recompiled/build/dxvk-source/src/d3d9/d3d9_device.cpp
+          test "$(find ../nfsu2-recompiled/build/dxvk-source/generated -name '*.spv' | wc -l)" -ge 54
+          echo 'Public recompilation and DXVK dependencies verified.'
+      - name: Status
+        if: always()
+        run: |
+          echo 'This job intentionally does not upload or execute proprietary game files.'
+          echo 'No APK is created until locally generated game C code is supplied.'
