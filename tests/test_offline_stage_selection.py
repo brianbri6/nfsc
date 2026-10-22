@@ -58,11 +58,40 @@ class OfflineStageIsolation(unittest.TestCase):
              patch.object(offline, "REFERENCE", self.reference), \
              patch.object(offline, "PCRECOMP_FILES", ()), \
              patch.object(offline, "verify_offline_assets", return_value=results), \
+             patch.object(offline, "audio_input_fingerprint", return_value="fixture-only"), \
              patch.object(offline, "run", side_effect=lambda env, *args: calls.append(args)), \
              patch.object(sys, "argv", ["prepare_offline.py", "--game-root", str(self.game),
                                         "--stage", stage]):
             offline.main()
         return [str(call[1]) for call in calls]
+
+    def test_audio_resume_fingerprint_changes_with_bank_or_generator(self):
+        bank = self.game / "SOUND" / "test.abk"
+        src = self.root / "src"
+        filenames = ("scripts/abk_module.py", "scripts/run_lift.py",
+                     "scripts/mw_lifter.py", "config/overrides.txt",
+                     "config/exclude.txt", "config/hooks.txt")
+        for filename in filenames:
+            file = self.root / filename
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.write_text("fake test-only source", encoding="utf-8")
+        pcrecomp = self.root / "toolchain"
+        lifter = pcrecomp / "tools/lift/lift32.py"
+        lifter.parent.mkdir(parents=True, exist_ok=True)
+        lifter.write_text("fake lift", encoding="utf-8")
+        with patch.object(offline, "ROOT", self.root):
+            first = offline.audio_input_fingerprint(self.game, self.reference["sha256"],
+                                                    [bank], pcrecomp)
+            self.assertEqual(first, offline.audio_input_fingerprint(
+                self.game, self.reference["sha256"], [bank], pcrecomp))
+            bank.write_bytes(bank.read_bytes() + b"changed")
+            second = offline.audio_input_fingerprint(self.game, self.reference["sha256"],
+                                                     [bank], pcrecomp)
+            self.assertNotEqual(first, second)
+            lifter.write_text("new fake lifter version", encoding="utf-8")
+            third = offline.audio_input_fingerprint(self.game, self.reference["sha256"],
+                                                    [bank], pcrecomp)
+            self.assertNotEqual(second, third)
 
     def test_only_game_stage_runs_main_lifter(self):
         commands = self.simulate("game")
