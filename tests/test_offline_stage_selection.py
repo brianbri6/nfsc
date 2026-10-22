@@ -48,7 +48,7 @@ class OfflineStageIsolation(unittest.TestCase):
             "sha256": hashlib.sha256((self.game / "NFSC.exe").read_bytes()).hexdigest(),
         }
 
-    def simulate(self, stage):
+    def simulate(self, stage, resume=False, audio_hash="fixture-only"):
         calls = []
         results = {"sound_banks": {
             "total_banks": 1, "unique_code_blocks": 1,
@@ -72,10 +72,10 @@ class OfflineStageIsolation(unittest.TestCase):
              patch.object(offline, "REFERENCE", self.reference), \
              patch.object(offline, "PCRECOMP_FILES", ()), \
              patch.object(offline, "verify_offline_assets", return_value=results), \
-             patch.object(offline, "audio_input_fingerprint", return_value="fixture-only"), \
+             patch.object(offline, "audio_input_fingerprint", return_value=audio_hash), \
              patch.object(offline, "run", side_effect=fake_run), \
              patch.object(sys, "argv", ["prepare_offline.py", "--game-root", str(self.game),
-                                        "--stage", stage]):
+                                        "--stage", stage] + (["--resume"] if resume else [])):
             offline.main()
         return [str(call[1]) for call in calls]
 
@@ -106,6 +106,12 @@ class OfflineStageIsolation(unittest.TestCase):
             third = offline.audio_input_fingerprint(self.game, self.reference["sha256"],
                                                     [bank], pcrecomp)
             self.assertNotEqual(second, third)
+
+    def test_audio_stage_skips_only_matching_complete_manifest(self):
+        self.assertEqual(len(self.simulate("audio")), 3)
+        self.assertEqual(self.simulate("audio", resume=True), [])
+        self.assertEqual(len(self.simulate("audio", resume=True,
+                                           audio_hash="bank-version-changed")), 3)
 
     def test_only_game_stage_runs_main_lifter(self):
         commands = self.simulate("game")
