@@ -2,10 +2,11 @@
 from pathlib import Path
 import sys
 import unittest
+import tempfile
 from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from run_lift import missing_seed_coverage, restore_seeds  # noqa: E402
+from run_lift import missing_seed_coverage, restore_seeds, invalidate_previous_lift_manifest  # noqa: E402
 
 
 def make_function(address, instructions, calls=()):
@@ -73,6 +74,17 @@ class MissingSeedCoverageTests(unittest.TestCase):
         restore_seeds(dis, {}, funcs, {0x1002})
         self.assertEqual(set(funcs), {0x1000, 0x2000})
         self.assertEqual(dis.decoded, [])
+
+    def test_restarting_lift_invalidates_old_success_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            stats = Path(tmp) / "d3dx_lift_stats.json"
+            generated = Path(tmp) / "d3dx_recomp_0000.c"
+            stats.write_text('{"functions": 100, "files": 1, "lift_failures": 0}')
+            generated.write_text("incomplete function body")
+            invalidate_previous_lift_manifest(tmp, "d3dx_")
+            self.assertFalse(stats.exists())
+            self.assertTrue(generated.exists())  # generator removes/replaces it next
+            invalidate_previous_lift_manifest(tmp, "d3dx_")  # safe to retry
 
     def test_existing_seed_function_wins_over_inside_seed(self):
         funcs = {0x1000: make_function(0x1000, [(0x1000, 5)])}
