@@ -51,8 +51,8 @@ then an offline race. Preserve NFSCO source for a later phase.
 
 ```bash
 python -m pip install capstone pefile
-python scripts/prepare_offline.py --game-root "../Need for Speed Carbon" --d3dx "C:/Windows/SysWOW64/d3dx9_30.dll" --check-only
-python scripts/prepare_offline.py --game-root "../Need for Speed Carbon" --d3dx "C:/Windows/SysWOW64/d3dx9_30.dll"
+python scripts/prepare_offline.py --game-root "../Need for Speed Carbon" --check-only
+python scripts/prepare_offline.py --game-root "../Need for Speed Carbon"
 cd android
 ./gradlew assembleDebug
 ```
@@ -62,7 +62,7 @@ Default target arm64-v8a; optional -PnfsAbi=armeabi-v7a.
 Do not run scripts/prepare_nfsco.py or tools/nfsco_capture.c for offline mode.
 
 ## Known blockers / risks
-- Game binary has not been provided; offline source generation cannot run yet.
+- The game binary has now been provided and hash-verified. Source lifting still awaits the patched pcrecomp/DXVK/SDK toolchains.
 - The NFSU2 sibling prepared DXVK toolchain is not checked in this repo.
 - Game boot/race/audio behavior can only be determined through APK plus on-device
   logcat and actual game assets.
@@ -70,8 +70,32 @@ Do not run scripts/prepare_nfsco.py or tools/nfsco_capture.c for offline mode.
 - The offline launcher still contains dormant online handlers; they are not
   exposed in the default UI.
 
+## Input archive verification (2026-10-22)
+User supplied ai.part1.rar (500 MiB) and ai.part2.rar (324 MiB).
+Archive RAR5 multi-volume extraction completed locally into a sandbox-only
+Need for Speed Carbon input directory; no game binaries were run.
+- 577 files, 1,075,943,461 extracted bytes.
+- NFSC.exe SHA-256: baaaaec33873d4ba7e4dbae6a5212049ffdcf9679a35d865d7625b4189952fd3
+  EXACT match for config/reference.json.
+- d3dx9_30.dll: ImageBase 0x00400000, SizeOfImage 0x00260000.
+- msvcr71.dll: ImageBase 0x7c340000, SizeOfImage 0x00056000.
+- msvcp71.dll: ImageBase 0x7c3a0000, SizeOfImage 0x0007b000.
+- server.dll also present but no longer required for offline build.
+- 285 .abk banks in SOUND, matching the generator's stated Carbon bank count.
+- These are enough ORIGINAL GAME INPUTS for stock code generation. No NFSCO
+  patch capture or related binary is necessary.
+- This upload is NOT the full playable game: CARS, TRACKS, GLOBAL, FRONTEND,
+  LANGUAGES and MOVIES directories are absent. Request remaining game data
+  later for device testing.
+- The execution sandbox has no Android SDK/NDK, pcrecomp checkout,
+  nfsu2-recompiled/DXVK checkout, Python capstone/pefile, or network DNS to
+  install them. Therefore source lifting and APK compilation could not be run.
+- scripts/prepare_offline.py was updated to prefer the uploaded d3dx9_30.dll
+  beside NFSC.exe, permit --check-only without pcrecomp installed, and
+  verify PE32 image bases/sizes before cataloguing.
+
 ## Next steps
-1. Obtain the original Carbon game and confirm hash/input check.
+1. Game and sound binary inputs are verified; fetch pcrecomp + nfsu2-recompiled and run offline --check-only on the build host.
 2. Run prepare_offline.py to generate lifted C and required DLL/sound modules.
 3. Build ARM64 APK. Fix compiler/linker errors and record exact changes.
 4. Install APK and put user-owned game data at /sdcard/nfsc/.
