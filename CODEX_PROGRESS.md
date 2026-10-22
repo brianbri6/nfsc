@@ -219,6 +219,28 @@ The remaining local generator stage is still analyzing d3dx9_30.dll
 must finish before an APK can be claimed. No more user uploads needed.
 Game-play testing will use complete data on the user's device.
 
+## Network/toolchain workaround verified — 2026-10-22
+
+GitHub Actions is a functioning remote preparation environment independent of
+the restricted local container's network/DNS:
+- Public toolchain workflow run 39808003551 completed SUCCESS.
+- Offline Android SDK cache workflow run 39792153510 completed SUCCESS.
+- Successful public toolchain run produced artifact
+  nfsc-public-offline-toolchain (artifact ID 12438153515, approx 45 MB).
+- The artifact was downloaded via connected GitHub integration as
+  nfsc-open-toolchain.zip, demonstrating that repository public source and
+  patched dependencies can be staged through Actions without a direct git
+  clone in the current environment.
+- The existing workflow is .github/workflows/offline-toolchain.yml.
+- Source archive includes public checkouts and Python package wheels; excludes
+  user's original game binaries, and cannot by itself produce the APK.
+- Local container command execution is currently failing; do not claim
+  local extraction, C generation or NDK compilation was completed.
+- Next: restore sandbox execution or use a separate build host to combine
+  the staged toolchain with the user-provided original game binary archive,
+  generate C code, then compile Android using the cached SDK/NDK.
+- Do not place extracted copyrighted game files in the public GitHub repo.
+
 ## Next steps
 1. Game and sound binary inputs are verified; fetch pcrecomp + nfsu2-recompiled and run offline --check-only on the build host.
 2. Run prepare_offline.py to generate lifted C and required DLL/sound modules.
