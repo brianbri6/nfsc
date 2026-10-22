@@ -97,6 +97,10 @@ def main():
     p.add_argument("--build", action="store_true", help="Compile Android debug APK from generated C")
     p.add_argument("--all", action="store_true", help="Preflight + setup + generate + build")
     p.add_argument("--resume", action="store_true", help="Reuse verified completed recompilation stages")
+    p.add_argument("--stage", choices=("all", "game", "audio", "dlls"), default="all",
+                   help="Select one code-generation stage when using --generate")
+    p.add_argument("--lto", action="store_true",
+                   help="Enable memory-intensive ThinLTO (off for first real APK build)")
     args = p.parse_args()
     if not (args.check or args.setup or args.generate or args.build or args.all):
         p.error("Select --check, --setup, --generate, --build, or --all")
@@ -107,8 +111,11 @@ def main():
                  "--game-root", game, "--check-only"])
         if args.setup or args.all:
             setup_sources()
+        if args.all and args.stage != "all":
+            p.error("--all builds an APK and therefore requires --stage all")
         if args.generate or args.all:
-            command = [sys.executable, ROOT / "scripts/prepare_offline.py", "--game-root", game]
+            command = [sys.executable, ROOT / "scripts/prepare_offline.py",
+                       "--game-root", game, "--stage", args.stage]
             if args.resume or args.all:
                 command.append("--resume")
             run(command)
@@ -117,10 +124,12 @@ def main():
                     (ROOT / "android/local.properties").is_file()):
                 raise RuntimeError("Android SDK path missing: set ANDROID_HOME or create android/local.properties")
             if os.name == "nt":
-                run(["cmd", "/c", "gradlew.bat", "assembleDebug", f"-PnfsAbi={args.abi}"],
+                run(["cmd", "/c", "gradlew.bat", "assembleDebug", f"-PnfsAbi={args.abi}",
+                     f"-PnfsGuestLto={'ON' if args.lto else 'OFF'}"],
                     cwd=ROOT / "android")
             else:
-                run(["bash", "./gradlew", "assembleDebug", f"-PnfsAbi={args.abi}"],
+                run(["bash", "./gradlew", "assembleDebug", f"-PnfsAbi={args.abi}",
+                     f"-PnfsGuestLto={'ON' if args.lto else 'OFF'}"],
                     cwd=ROOT / "android")
             apk = ROOT / "android/app/build/outputs/apk/debug/app-debug.apk"
             if not apk.is_file():
