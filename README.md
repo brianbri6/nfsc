@@ -8,6 +8,45 @@ It is **not** an emulator: every function of the original PC executable is trans
 
 No game files are included. You need your own copy of the PC game. Generated C code, analysis copies and logs are produced locally and never committed.
 
+## Verified game inputs and offline build helper
+
+The user's two-part Carbon archive (ai.part1.rar / ai.part2.rar) contains
+**exactly the NFSC.exe 1.4 hash needed** for this project's translated code,
+the required D3DX/MSVCR/MSVCP DLLs and all **285 ABKC sound banks**.
+The standard-library-only input verifier also checked **33,232** embedded x86
+sound-bank call references against the original executable's call table;
+there were **zero invalid targets**. These files remain local and are **not
+uploaded to GitHub**.
+
+Preflight and save a machine-readable report without pcrecomp, the NDK or any
+third-party Python dependency:
+
+\`\`\`bash
+python scripts/verify_offline_assets.py "../Need for Speed Carbon" --json-out work/offline_input_report.json
+python scripts/bootstrap_offline.py --game-root "../Need for Speed Carbon" --check
+\`\`\`
+
+To prepare pinned open-source dependencies, generate all C locally and attempt
+the ARM64 APK (requires an internet-enabled host, Android Studio SDK 35,
+NDK 28.2.13676358, CMake 3.30.5, Git, Java and the Vulkan shader tools
+\`glslangValidator\` and \`spirv-val\`):
+
+\`\`\`bash
+python scripts/bootstrap_offline.py --game-root "../Need for Speed Carbon" --all
+\`\`\`
+
+You can run each stage separately using \`--setup\`, \`--generate\`, and \`--build\`.
+The helper initializes NFSU2's libadrenotools submodule, pins the pcrecomp
+patch base, checks DXVK Native's exact revision, prepares the Android DXVK
+source and 54 shader binaries, and invokes \`gradlew assembleDebug\`. Existing
+local tool checkouts are preserved.
+
+**Status:** Input validation and source changes are verified, but C generation,
+APK compilation and offline gameplay are NOT yet verified. A local build host
+with network access and the Android toolchain is still required. The remaining
+full game resource folders can be copied directly to the phone; they do not
+need to be uploaded to this repository or chat.
+
 ## Offline single-player first (current build goal)
 
 **The default Android APK is now configured for the original Carbon game, with no NFSCO dependency.** Online multiplayer and the EA LAN server are postponed. Gameplay has **not** been verified on a device yet.
