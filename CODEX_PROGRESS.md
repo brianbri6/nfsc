@@ -179,6 +179,46 @@ the chat container cannot directly use DNS, GitHub, curl or git clone.
 
 The workaround does not require the user to re-upload game files.
 
+## Actual offline x86-to-C generation and Android SDK transfer (latest)
+
+**Main Carbon executable lifting completed locally** against user-provided
+NFSC.exe. Main code output is in the container at
+/mnt/data/nfsc-build-workspace/nfsc/src/recomp/gen (gitignored):
+- 52,931 functions compiled from catalog to C source (133 C translation units).
+- 6,634,716 generated C lines (~301 MiB raw C files).
+- lift_failures: **0**; 120 unsupported-instruction sites still need runtime
+  reachability checks (many likely non-code scans).
+- Statistics: src/recomp/gen/lift_stats.json.
+- Initial catalog discovered 52,733 entries; final catalog includes additional
+  jump-table and function-pointer seeds.
+- Generated game C is NOT committed to public GitHub.
+
+**Android SDK workaround:** GitHub Actions run
+https://github.com/brianbri6/nfsc/actions/runs/39791179951
+successfully installed SDK 35 / build tools 35.0.0 / NDK 28.2.13676358 /
+CMake 3.30.5 and downloaded Gradle 8.9 + Android Gradle Plugin 8.7.3.
+- Downloaded 271 MiB Gradle cache as a GitHub Actions artifact.
+- Downloading the single 830 MiB Android SDK archive via connector failed
+  because it exceeds a 512 MiB file-size limit.
+- Updated .github/workflows/offline-android-sdk.yml to split SDK bundle into
+  four 275/275/275/5 MiB artifacts; rerun succeeded.
+- Downloaded and reconstructed all four artifacts into
+  /mnt/data/nfsc-build-workspace/android_sdk_bundle.tar.gz (831 MiB).
+- Extracted SDK to /mnt/data/nfsc-build-workspace/android_sdk (2.6 GiB).
+- Confirmed SDK android-35/android.jar, build-tools/35.0.0/aapt2,
+  NDK clang 19.0.1 and CMake 3.30.5 can be invoked locally.
+- Android Gradle 8.9 cache is at /mnt/data/nfsc-build-workspace/.gradle.
+- First `./gradlew --offline --no-daemon help` check exceeded tool timeout
+  while D3DX module catalog was consuming ~3 GiB / full CPU.
+  Needs retry after generator frees memory.
+- android/app/build.gradle now supports `-PnfsGuestLto=OFF` for
+  lower-memory first boot APK builds.
+
+The remaining local generator stage is still analyzing d3dx9_30.dll
+(prepare_modules.py). MSVCR/MSVCP, 285-bank ABK lift and Android compile
+must finish before an APK can be claimed. No more user uploads needed.
+Game-play testing will use complete data on the user's device.
+
 ## Next steps
 1. Game and sound binary inputs are verified; fetch pcrecomp + nfsu2-recompiled and run offline --check-only on the build host.
 2. Run prepare_offline.py to generate lifted C and required DLL/sound modules.
