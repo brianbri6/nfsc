@@ -51,17 +51,34 @@ jobs:
           tar -C "$ANDROID_HOME" -czf /tmp/nfsc-android-sdk.tar.gz platforms/android-35 build-tools/35.0.0 ndk/28.2.13676358 cmake/3.30.5 licenses
           tar -C "$HOME" -czf /tmp/nfsc-gradle-cache.tar.gz --exclude='*.lock' --exclude='daemon' .gradle
           ls -lh /tmp/nfsc-android-sdk.tar.gz /tmp/nfsc-gradle-cache.tar.gz
+          # GitHub connector download caps individual files at 512 MiB.
+          split -b 275m -d -a 2 /tmp/nfsc-android-sdk.tar.gz /tmp/nfsc-sdk-part-
+          ls -lh /tmp/nfsc-sdk-part-*
       - uses: actions/upload-artifact@v4
         with:
-          name: nfsc-android-sdk-offline
-          path: /tmp/nfsc-android-sdk.tar.gz
+          name: nfsc-sdk-part-00
+          path: /tmp/nfsc-sdk-part-00
           retention-days: 1
           compression-level: 0
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
-          name: nfsc-gradle-cache-offline
-          path: /tmp/nfsc-gradle-cache.tar.gz
+          name: nfsc-sdk-part-01
+          path: /tmp/nfsc-sdk-part-01
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nfsc-sdk-part-02
+          path: /tmp/nfsc-sdk-part-02
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nfsc-sdk-part-03
+          path: /tmp/nfsc-sdk-part-03
           retention-days: 1
           compression-level: 0
           if-no-files-found: error
