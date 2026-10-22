@@ -43,25 +43,57 @@ def main():
     game = args.game_root.expanduser().resolve()
     pcrecomp = Path(os.environ.get("PCRECOMP", ROOT.parent / "pcrecomp")).expanduser().resolve()
     system = Path(os.environ.get("SystemRoot", r"C:\Windows"))
-    d3dx = (args.d3dx or Path(os.environ.get("NFSC_D3DX_PATH", str(system / "SysWOW64" / "d3dx9_30.dll")))).expanduser().resolve()
+    # Copies of the original game may ship d3dx9_30.dll beside NFSC.exe.
+    # Prefer that local copy when no explicit override is set.
+    explicit_d3dx = args.d3dx or os.environ.get("NFSC_D3DX_PATH")
+    fallback_d3dx = game / "d3dx9_30.dll" if (game / "d3dx9_30.dll").is_file() else system / "SysWOW64" / "d3dx9_30.dll"
+    d3dx = Path(explicit_d3dx or fallback_d3dx).expanduser().resolve()
 
     missing = [str(game / name) for name in (REFERENCE["executable"], *REQUIRED_DLLS)
                if not (game / name).is_file()]
     if not d3dx.is_file():
         missing.append(str(d3dx))
-    if not any((game / "SOUND").rglob("*.abk")):
+    sound_banks = sorted((game / "SOUND").rglob("*.abk"))
+    if not sound_banks:
         missing.append(str(game / "SOUND" / "**" / "*.abk"))
-    missing += [str(pcrecomp / file) for file in PCRECOMP_FILES if not (pcrecomp / file).is_file()]
+    if not args.check_only:
+        missing += [str(pcrecomp / file) for file in PCRECOMP_FILES if not (pcrecomp / file).is_file()]
     if missing:
         parser.error("Missing required offline inputs:\n  " + "\n  ".join(missing))
     exe = game / REFERENCE["executable"]
     digest = hashlib.sha256(exe.read_bytes()).hexdigest()
     if digest != REFERENCE["sha256"]:
         parser.error(f"Unsupported NFSC.exe SHA-256: {digest}\nExpected {REFERENCE['sha256']} (Carbon 1.4)")
-    print(f"Verified original game: {exe}\nVerified pcrecomp: {pcrecomp}\nVerified D3DX: {d3dx}", flush=True)
+    # Verify DLL layouts against the hard-coded guest module mappings. Fail
+    # before spending time cataloguing C if a binary is a different build.
+    import struct
+    layouts = {
+        "d3dx9_30.dll": (d3dx, 0x00400000, 0x00260000),
+        "msvcr71.dll": (game / "msvcr71.dll", 0x7c340000, 0x00056000),
+        "msvcp71.dll": (game / "msvcp71.dll", 0x7c3a0000, 0x0007b000),
+    }
+    for name, (file, expected_base, expected_size) in layouts.items():
+        with file.open("rb") as stream:
+            header = stream.read(4096)
+        if len(header) < 256 or header[:2] != b"MZ":
+            parser.error(f"{name}: expected a PE32 DLL, but got an invalid DOS header")
+        offset = struct.unpack_from("<I", header, 0x3c)[0]
+        if offset + 24 + 60 > len(header) or header[offset:offset + 4] != b"PE\\0\\0":
+            parser.error(f"{name}: invalid PE header")
+        opt = offset + 24
+        machine = struct.unpack_from("<H", header, offset + 4)[0]
+        magic = struct.unpack_from("<H", header, opt)[0]
+        base = struct.unpack_from("<I", header, opt + 28)[0]
+        size = struct.unpack_from("<I", header, opt + 56)[0]
+        if machine != 0x14c or magic != 0x10b or (base, size) != (expected_base, expected_size):
+            parser.error(f"{name}: unexpected PE32 layout: base={base:#x}, image size={size:#x}")
+    print(f"Verified original game: {exe}\nVerified D3DX: {d3dx}\nVerified sound banks: {len(sound_banks)}", flush=True)
+    if len(sound_banks) != 285:
+        print("Warning: reference game has 285 .abk sound banks; check that SOUND is complete.", flush=True)
     if args.check_only:
-        print("Offline input check passed; no files generated.")
+        print("Offline game input check passed; no tools needed and no files generated.")
         return
+    print(f"Verified pcrecomp: {pcrecomp}", flush=True)
 
     env = os.environ.copy()
     env["NFSC_GAME_ROOT"] = str(game)
