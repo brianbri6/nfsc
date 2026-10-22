@@ -59,13 +59,13 @@ def parse_pe(file, include_image=False):
     return details, image
 
 
-def verify(game_root):
+def verify(game_root, d3dx_path=None):
     root = Path(game_root).expanduser().resolve()
     report = {"source_directory": str(root), "game_executable": {},
               "required_dlls": {}, "sound_banks": {}}
     image = None
     for name, (base, size) in EXPECTED_LAYOUTS.items():
-        path = root / name
+        path = Path(d3dx_path).expanduser().resolve() if name == "d3dx9_30.dll" and d3dx_path else root / name
         require(path.is_file(), f"Required file missing: {path}")
         details, mapped = parse_pe(path, include_image=name == "NFSC.exe")
         require(int(details["image_base"], 16) == base and
@@ -130,9 +130,10 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("game_root", type=Path)
     p.add_argument("--json-out", type=Path)
+    p.add_argument("--d3dx", type=Path, help="Optional separate local d3dx9_30.dll")
     args = p.parse_args()
     try:
-        report = verify(args.game_root)
+        report = verify(args.game_root, args.d3dx)
     except (OSError, ValueError, struct.error) as e:
         p.exit(1, f"Input verification FAILED: {e}\n")
     value = json.dumps(report, indent=2)
