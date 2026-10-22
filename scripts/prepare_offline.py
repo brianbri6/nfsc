@@ -157,14 +157,9 @@ def main():
         run(env, py, "scripts/run_lift.py", "lift", analysis,
             work / "catalog.json", ROOT / "src" / "recomp" / "gen")
 
-    # Always ask the DLL pipeline to validate all required modules. It can
-    # skip proven-complete stages via its per-DLL source/tool fingerprints.
-    # A dispatch table alone cannot prove it matches the current input DLL.
-    # EA LAN server and NFSCO are deliberately excluded.
-    required_modules = ("d3dx9_30.dll", "msvcr71.dll", "msvcp71.dll")
-    run(env, py, "scripts/prepare_modules.py",
-        *(["--resume"] if args.resume else []), *required_modules)
-
+    # Sound-bank code is relatively small and self-contained. Generate it
+    # before the very expensive D3DX catalog so a long DLL stage or crash
+    # does not postpone completion of the audio callback C.
     # Execute routines embedded in the stock EA sound banks.
     abk = ROOT / "src" / "recomp" / "gen_abk"
     abk_image = work / "abk_analysis.dll"
@@ -178,6 +173,15 @@ def main():
             abk_catalog, "--seeds-only")
         run(env, py, "scripts/run_lift.py", "lift", abk_image, abk_catalog,
             abk, "--prefix", "abk_")
+
+
+    # Always ask the DLL pipeline to validate all required modules. It can
+    # skip proven-complete stages via its per-DLL source/tool fingerprints.
+    # A dispatch table alone cannot prove it matches the current input DLL.
+    # EA LAN server and NFSCO are deliberately excluded.
+    required_modules = ("d3dx9_30.dll", "msvcr71.dll", "msvcp71.dll")
+    run(env, py, "scripts/prepare_modules.py",
+        *(["--resume"] if args.resume else []), *required_modules)
 
     print("\nBase-game C generation completed. Build: cd android && ./gradlew assembleDebug", flush=True)
     print("NFSCO and server.dll are not needed for this single-player build.")
