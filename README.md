@@ -8,6 +8,55 @@ It is **not** an emulator: every function of the original PC executable is trans
 
 No game files are included. You need your own copy of the PC game. Generated C code, analysis copies and logs are produced locally and never committed.
 
+## Offline single-player first (current build goal)
+
+**The default Android APK is now configured for the original Carbon game, with no NFSCO dependency.** Online multiplayer and the EA LAN server are postponed. Gameplay has **not** been verified on a device yet.
+
+This build requires the owner's original **NFSC.exe 1.4** whose SHA-256 is specified in `config/reference.json`, plus `msvcr71.dll`, `msvcp71.dll`, `SOUND/**/*.abk`, and a 32-bit `d3dx9_30.dll` from the DirectX 9 runtime. `server.dll`, `palmont.dll`, `logging.dll`, NFSCO captures and the NFSCO game folder are **not required** for this milestone.
+
+Checkouts should be siblings:
+
+```text
+workspace/
+  nfsc/
+  pcrecomp/           # patched build below
+  nfsu2-recompiled/   # prepared Android DXVK / libadrenotools dependencies
+  Need for Speed Carbon/
+    NFSC.exe
+    msvcr71.dll
+    msvcp71.dll
+    SOUND/
+    LANGUAGES/
+    ...
+```
+
+Get the compatible recompiler from [sp00nznet/pcrecomp](https://github.com/sp00nznet/pcrecomp) and apply the [nfsu2-recompiled patches](https://github.com/codepdbh/nfsu2-recompiled/tree/main/patches/pcrecomp):
+
+```bash
+git clone https://github.com/codepdbh/nfsu2-recompiled.git ../nfsu2-recompiled
+git clone https://github.com/sp00nznet/pcrecomp.git ../pcrecomp
+cd ../pcrecomp
+git checkout 35548b8
+git am ../nfsu2-recompiled/patches/pcrecomp/*.patch
+cd ../nfsc
+python -m pip install capstone pefile
+```
+
+Prepare the locally generated C code from the **unmodified stock** executable:
+
+```bash
+python scripts/prepare_offline.py --game-root "../Need for Speed Carbon" --d3dx "C:/Windows/SysWOW64/d3dx9_30.dll" --check-only
+python scripts/prepare_offline.py --game-root "../Need for Speed Carbon" --d3dx "C:/Windows/SysWOW64/d3dx9_30.dll"
+cd android
+./gradlew assembleDebug
+```
+
+On Windows, `--d3dx` can be omitted if it is present in `%SystemRoot%/SysWOW64/`. On other systems provide an accessible 32-bit copy with `--d3dx`. The code generator is platform-independent, but capturing NFSCO hooks (not part of the offline build) is Windows-specific. Prepare DXVK through the sibling NFSU2 Android build prerequisites. The Android project uses SDK 35, NDK 28.2.13676358 and CMake 3.30.5. The default ABI is arm64-v8a.
+
+The debug APK, if compilation succeeds, appears at `android/app/build/outputs/apk/debug/app-debug.apk`. Copy your own original game assets into `/sdcard/nfsc/` on the device. An APK without the user's game files is not a complete playable game.
+
+To intentionally build the separate NFSCO port **later**, generate its hook capture and C modules and pass `-DNFSC_ENABLE_NFSCO=ON` to CMake. `-DNFSC_ENABLE_LAN_SERVER=ON` similarly enables the optional generated `server.dll` module. Neither is selected by default. Do not mix an NFSCO-patched game's generated C with the offline build: the stock and NFSCO hook layouts are different.
+
 ### What is translated
 
 | Code | Origin | Guest base |
@@ -28,20 +77,9 @@ Carbon picks its language from the registry value `Language`. The launcher write
 
 ### Building
 
-Requirements: Python 3 with `capstone` and `pefile`, the patched `pcrecomp` and `nfsu2-recompiled` (prepared DXVK tree, libadrenotools) checked out next to this folder, Android SDK/NDK, and the game in `../Need for Speed Carbon`.
+Use the **offline single-player instructions above** for the default APK. The scripts in `scripts/prepare_offline.py` regenerate the stock Carbon C code, its required MSVCR/MSVCP and D3DX modules, and the EA sound-bank routines, without needing NFSCO.
 
-```powershell
-python scripts/analyze_binary.py            # work/speed.analysis.exe, work/binary.json
-python scripts/run_lift.py catalog work/speed.analysis.exe work/seeds_code.json work/catalog.json
-python scripts/run_lift.py lift work/speed.analysis.exe work/catalog.json src/recomp/gen
-python scripts/prepare_modules.py           # d3dx9_30, msvcr71, msvcp71, server.dll
-python scripts/abk_module.py "../Need for Speed Carbon" work/abk_analysis.dll work/abk_seeds.json src/recomp/gen_abk/abk_blocks.c
-python scripts/run_lift.py catalog work/abk_analysis.dll work/abk_seeds.json work/abk_catalog.json --seeds-only
-python scripts/run_lift.py lift work/abk_analysis.dll work/abk_catalog.json src/recomp/gen_abk --prefix abk_
-cd android; ./gradlew assembleDebug
-```
-
-On the phone, copy the game folder (with `NFSC.exe`, `msvcr71.dll`, `msvcp71.dll`, `server.dll`) to `Internal storage/nfsc`, plus `d3dx9_30.dll` from your Windows `SysWOW64`.
+The NFSCO online path is preserved in `scripts/prepare_nfsco.py` and `tools/nfsco_capture.c` for a later milestone. The default offline APK never calls `OnAttach`.
 
 ### License and credits
 
