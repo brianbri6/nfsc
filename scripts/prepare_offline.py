@@ -157,17 +157,13 @@ def main():
         run(env, py, "scripts/run_lift.py", "lift", analysis,
             work / "catalog.json", ROOT / "src" / "recomp" / "gen")
 
-    # Carbon's actual imports. EA LAN server and NFSCO are NOT required.
-    required_modules = (("d3dx9_30.dll", "d3dx_"),
-                        ("msvcr71.dll", "msvcr_"),
-                        ("msvcp71.dll", "msvcp_"))
-    pending = [name for name, prefix in required_modules if
-               not (args.resume and complete_lift(ROOT / "src" / "recomp" /
-                                                ("gen_" + prefix.rstrip("_")), prefix))]
-    if pending:
-        run(env, py, "scripts/prepare_modules.py", *(["--resume"] if args.resume else []), *pending)
-    else:
-        print("RESUME: all required DLL lifts are complete.", flush=True)
+    # Always ask the DLL pipeline to validate all required modules. It can
+    # skip proven-complete stages via its per-DLL source/tool fingerprints.
+    # A dispatch table alone cannot prove it matches the current input DLL.
+    # EA LAN server and NFSCO are deliberately excluded.
+    required_modules = ("d3dx9_30.dll", "msvcr71.dll", "msvcp71.dll")
+    run(env, py, "scripts/prepare_modules.py",
+        *(["--resume"] if args.resume else []), *required_modules)
 
     # Execute routines embedded in the stock EA sound banks.
     abk = ROOT / "src" / "recomp" / "gen_abk"
