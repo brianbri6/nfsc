@@ -50,8 +50,10 @@ MODULES = {
     "msvcp71.dll": (GAME / "msvcp71.dll", 0x00FC0000, "msvcp_"),
     "server.dll": (GAME / "server.dll", 0x01270000, "server_"),
 }
-# Modules whose imports of lifted DLLs must resolve to real (non-excluded) code.
-IMPORTERS = [GAME / "NFSC.exe"] + [MODULES[n][0] for n in MODULES]
+# Only modules selected for this build may impose import/export
+# requirements. The default offline path explicitly omits server.dll.
+# In particular, never require or parse LAN/online DLLs for single-player.
+IMPORTERS = [GAME / "NFSC.exe"] + [MODULES[n][0] for n in (sys.argv[1:] or MODULES)]
 
 NOT_CODE = {'arpl', 'insb', 'insd', 'insw', 'outsw', 'outsb', 'outsd', 'bound', 'daa', 'das', 'aaa', 'aas',
             'aam', 'aad', 'popaw', 'pushaw', 'sldt', 'lcall', 'ljmp', 'into', 'salc', 'hlt', 'cli', 'sti',
