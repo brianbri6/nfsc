@@ -241,6 +241,35 @@ the restricted local container's network/DNS:
   generate C code, then compile Android using the cached SDK/NDK.
 - Do not place extracted copyrighted game files in the public GitHub repo.
 
+## Android build workaround — native compile regression CI (2026-10-22)
+
+The container-backed execution tools in this chat currently return ClientError,
+so previously staged local binaries and game-generated C cannot be resumed
+from this live turn. The GitHub connector remains writable.
+
+To continue useful verification without publishing any of the owner's
+game binaries, committed an **opt-in, explicitly non-playable** CI test:
+- scripts/offline_native_smoke.c: empty guest/ABK dispatch fixtures, no
+  copyrighted content.
+- android/app/src/main/cpp/CMakeLists.txt:
+  NFSC_SMOKE_STUBS=ON compiles the Android host runtime with fixtures
+  instead of game-generated C; OFF is unchanged and remains the playable path.
+- android/app/build.gradle: -PnfsSmokeStub=ON exposes the option to Gradle.
+- .github/workflows/offline-native-smoke.yml:
+  Ubuntu runner installs Android SDK 35/NDK 28.2/CMake 3.30.5,
+  prepares pinned pcrecomp and DXVK, then tries a full native host link
+  and verifies that the expected .so files appear inside the test APK.
+- Run URL: https://github.com/brianbri6/nfsc/actions/runs/39809835715
+  Status at creation: in progress. Check actual result before claiming success.
+- This test APK has **NO GAME LOGIC** and must NEVER be offered as a playable
+  Carbon APK or published as a release.
+
+The game source-generation checkpoint from the preceding run is recorded
+above: 52,931 original Carbon functions were successfully lifted to C,
+with required DLL/ABK work still pending. No re-upload is needed.
+Next: address native CMake/compiler issues revealed by CI and resume the
+game DLL/ABK lift when the container tool is restored.
+
 ## Next steps
 1. Game and sound binary inputs are verified; fetch pcrecomp + nfsu2-recompiled and run offline --check-only on the build host.
 2. Run prepare_offline.py to generate lifted C and required DLL/sound modules.
