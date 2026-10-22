@@ -187,6 +187,19 @@ def read_va_list(path):
     return out
 
 
+def invalidate_previous_lift_manifest(outdir, prefix):
+    """A new lift must not inherit success metadata from an older output.
+
+    When the process crashes after overwriting some recomp_*.c files, a stale
+    lift_stats.json could falsely tell --resume that the partial output is
+    complete. Remove the manifest *before* rewriting any generated source;
+    the driver writes fresh success stats only after all units are emitted.
+    """
+    path = os.path.join(outdir, f"{prefix}lift_stats.json")
+    if os.path.exists(path):
+        os.remove(path)
+
+
 def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", extra_exclude=None):
     import pefile
     from mw_lifter import Lifter
@@ -217,6 +230,7 @@ def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", extra_
     lifter = Lifter(iat_map=iat, func_names={}, lifted=lifted, precise_carry=True,
                     hook_sites=set(hooks))
     os.makedirs(outdir, exist_ok=True)
+    invalidate_previous_lift_manifest(outdir, prefix)
     for fn in os.listdir(outdir):
         if fn.startswith(prefix + "recomp_") and fn.endswith((".c", ".h")):
             os.remove(os.path.join(outdir, fn))
