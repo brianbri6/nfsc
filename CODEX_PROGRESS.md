@@ -480,6 +480,32 @@ Actual Carbon ARM64 APK is still NOT produced; synthetic integration APKs
 are test-only. Continue on a host with access to the prior local game
 binaries and patched toolchain. No additional user upload is necessary.
 
+## User-assisted Windows / Android Studio handoff (2026-10-22)
+
+The user offered to build the real game APK locally with Android Studio.
+Project now defaults to NFS_GUEST_LTO=OFF in android/app/build.gradle for
+lower-memory normal GUI build (user can override nfsGuestLto). The README
+now documents exact Windows checkout, original input placement, Vulkan shader
+tools, SDK/NDK/CMake versions, 3 independently resumable generation stages,
+Android Studio project directory and Gradle fallback command.
+
+First requested result to collect from user:
+  cd C:\NFSCBuild\nfsc
+  py -3 scripts\bootstrap_offline.py --check
+
+If it passes:
+  py -3 scripts\bootstrap_offline.py --setup
+  py -3 scripts\bootstrap_offline.py --generate --stage audio --resume
+  py -3 scripts\bootstrap_offline.py --generate --stage dlls --resume
+  py -3 scripts\bootstrap_offline.py --generate --stage game --resume
+
+Then open nfsc/android in Studio and attempt debug APK (or use gradlew.bat).
+The previously lifted 52,931-function C output was in the inaccessible
+session's private workspace and was not published; a fresh user checkout
+will regenerate it from NFSC.exe. Do not claim that a fresh checkout already
+has real generated code, nor advise to install CI's non-playable APKs.
+Ask for the first build/generation error log instead of any new game upload.
+
 ## Next steps
 1. Game and sound binary inputs are verified; fetch pcrecomp + nfsu2-recompiled and run offline --check-only on the build host.
 2. Run prepare_offline.py to generate lifted C and required DLL/sound modules.
