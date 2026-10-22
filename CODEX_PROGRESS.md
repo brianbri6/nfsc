@@ -368,9 +368,14 @@ assets into a public GitHub repository, committed:
   CMake branch, unlike the older host-only NFSC_SMOKE_STUBS test, using
   harmless fake C functions and checks native objects and APK packaging.
 - The CI artifact is not playable and must never be released.
-- GitHub Actions run at creation:
+- GitHub Actions run 39824773205 completed SUCCESS:
   https://github.com/brianbri6/nfsc/actions/runs/39824773205
-  Status at creation: IN PROGRESS. Verify outcome before claiming success.
+  Confirmed these steps all PASSED: "Prepare explicitly synthetic C fixtures",
+  "Compile normal generated-C CMake branch with synthetic fixtures", and
+  "Verify native libraries and generated C objects".
+  The build uses NFSC_SMOKE_STUBS=OFF to exercise the actual source-glob/link
+  path for EXE, D3DX, MSVCR, MSVCP and ABK translation units. It is synthetic,
+  not a game, and no playable APK was produced.
 
 ## Next steps
 1. Game and sound binary inputs are verified; fetch pcrecomp + nfsu2-recompiled and run offline --check-only on the build host.
