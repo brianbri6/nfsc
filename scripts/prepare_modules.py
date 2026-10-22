@@ -45,7 +45,7 @@ for sub in ("pe", "disasm"):
 
 # name: (source, guest base, output prefix)
 MODULES = {
-    "d3dx9_30.dll": (SYSTEM / "d3dx9_30.dll", 0x00D00000, "d3dx_"),
+    "d3dx9_30.dll": (pathlib.Path(os.environ.get("NFSC_D3DX_PATH", str(SYSTEM / "d3dx9_30.dll"))), 0x00D00000, "d3dx_"),
     "msvcr71.dll": (GAME / "msvcr71.dll", 0x00F60000, "msvcr_"),
     "msvcp71.dll": (GAME / "msvcp71.dll", 0x00FC0000, "msvcp_"),
     "server.dll": (GAME / "server.dll", 0x01270000, "server_"),
