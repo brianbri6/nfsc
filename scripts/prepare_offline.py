@@ -43,6 +43,8 @@ def main():
                         help="Validate inputs without generating any C code")
     parser.add_argument("--resume", action="store_true",
                         help="Reuse completed main/DLL/ABK lifts; validate their manifests first")
+    parser.add_argument("--stage", choices=("all", "game", "audio", "dlls"), default="all",
+                        help="Generate only the selected stage; all is the normal offline build")
     args = parser.parse_args()
     game = args.game_root.expanduser().resolve()
     pcrecomp = Path(os.environ.get("PCRECOMP", ROOT.parent / "pcrecomp")).expanduser().resolve()
@@ -130,60 +132,63 @@ def main():
         except (OSError, ValueError):
             return False
 
-    # Generated original EXE outputs may be reused only when the analysis
-    # manifest points to this exact uploaded binary, never a different build.
-    analysis_manifest = work / "binary.json"
-    verified_original = False
-    if analysis_manifest.is_file():
-        try:
-            verified_original = (json.loads(analysis_manifest.read_text(encoding="utf-8"))
-                                 .get("sha256") == digest)
-        except (OSError, ValueError):
-            pass
-    skip_main = args.resume and verified_original and complete_lift(
-        ROOT / "src" / "recomp" / "gen", "")
-    if skip_main:
-        print("RESUME: reusing complete verified stock executable C lift.", flush=True)
-    else:
-        # The first catalog supplies function/code boundaries for the seed extractor.
-        run(env, py, "scripts/analyze_binary.py", exe)
-        run(env, py, "scripts/data_seeds.py", analysis, work / "seeds_data.json")
-        run(env, py, "scripts/run_lift.py", "catalog", analysis,
-            work / "seeds_data.json", work / "catalog_initial.json")
-        run(env, py, "scripts/code_seeds.py", analysis, work / "catalog_initial.json",
-            work / "seeds_code.json", "--merge", work / "seeds_data.json")
-        run(env, py, "scripts/run_lift.py", "catalog", analysis,
-            work / "seeds_code.json", work / "catalog.json")
-        run(env, py, "scripts/run_lift.py", "lift", analysis,
-            work / "catalog.json", ROOT / "src" / "recomp" / "gen")
+    if args.stage in ("all", "game"):
+        # Generated original EXE outputs may be reused only when the analysis
+        # manifest points to this exact uploaded binary, never a different build.
+        analysis_manifest = work / "binary.json"
+        verified_original = False
+        if analysis_manifest.is_file():
+            try:
+                verified_original = (json.loads(analysis_manifest.read_text(encoding="utf-8"))
+                                     .get("sha256") == digest)
+            except (OSError, ValueError):
+                pass
+        skip_main = args.resume and verified_original and complete_lift(
+            ROOT / "src" / "recomp" / "gen", "")
+        if skip_main:
+            print("RESUME: reusing complete verified stock executable C lift.", flush=True)
+        else:
+            # The first catalog supplies function/code boundaries for the seed extractor.
+            run(env, py, "scripts/analyze_binary.py", exe)
+            run(env, py, "scripts/data_seeds.py", analysis, work / "seeds_data.json")
+            run(env, py, "scripts/run_lift.py", "catalog", analysis,
+                work / "seeds_data.json", work / "catalog_initial.json")
+            run(env, py, "scripts/code_seeds.py", analysis, work / "catalog_initial.json",
+                work / "seeds_code.json", "--merge", work / "seeds_data.json")
+            run(env, py, "scripts/run_lift.py", "catalog", analysis,
+                work / "seeds_code.json", work / "catalog.json")
+            run(env, py, "scripts/run_lift.py", "lift", analysis,
+                work / "catalog.json", ROOT / "src" / "recomp" / "gen")
 
-    # Sound-bank code is relatively small and self-contained. Generate it
-    # before the very expensive D3DX catalog so a long DLL stage or crash
-    # does not postpone completion of the audio callback C.
-    # Execute routines embedded in the stock EA sound banks.
-    abk = ROOT / "src" / "recomp" / "gen_abk"
-    abk_image = work / "abk_analysis.dll"
-    abk_seeds = work / "abk_seeds.json"
-    abk_catalog = work / "abk_catalog.json"
-    if args.resume and (abk / "abk_blocks.c").is_file() and complete_lift(abk, "abk_"):
-        print("RESUME: reusing complete sound-bank C lift.", flush=True)
-    else:
-        run(env, py, "scripts/abk_module.py", game, abk_image, abk_seeds, abk / "abk_blocks.c")
-        run(env, py, "scripts/run_lift.py", "catalog", abk_image, abk_seeds,
-            abk_catalog, "--seeds-only")
-        run(env, py, "scripts/run_lift.py", "lift", abk_image, abk_catalog,
-            abk, "--prefix", "abk_")
+    if args.stage in ("all", "audio"):
+        # Sound-bank code is relatively small and self-contained. Generate it
+        # before the very expensive D3DX catalog so a long DLL stage or crash
+        # does not postpone completion of the audio callback C.
+        # Execute routines embedded in the stock EA sound banks.
+        abk = ROOT / "src" / "recomp" / "gen_abk"
+        abk_image = work / "abk_analysis.dll"
+        abk_seeds = work / "abk_seeds.json"
+        abk_catalog = work / "abk_catalog.json"
+        if args.resume and (abk / "abk_blocks.c").is_file() and complete_lift(abk, "abk_"):
+            print("RESUME: reusing complete sound-bank C lift.", flush=True)
+        else:
+            run(env, py, "scripts/abk_module.py", game, abk_image, abk_seeds, abk / "abk_blocks.c")
+            run(env, py, "scripts/run_lift.py", "catalog", abk_image, abk_seeds,
+                abk_catalog, "--seeds-only")
+            run(env, py, "scripts/run_lift.py", "lift", abk_image, abk_catalog,
+                abk, "--prefix", "abk_")
 
+    if args.stage in ("all", "dlls"):
+        # Always ask the DLL pipeline to validate all required modules. It can
+        # skip proven-complete stages via its per-DLL source/tool fingerprints.
+        # A dispatch table alone cannot prove it matches the current input DLL.
+        # EA LAN server and NFSCO are deliberately excluded.
+        required_modules = ("d3dx9_30.dll", "msvcr71.dll", "msvcp71.dll")
+        run(env, py, "scripts/prepare_modules.py",
+            *(["--resume"] if args.resume else []), *required_modules)
 
-    # Always ask the DLL pipeline to validate all required modules. It can
-    # skip proven-complete stages via its per-DLL source/tool fingerprints.
-    # A dispatch table alone cannot prove it matches the current input DLL.
-    # EA LAN server and NFSCO are deliberately excluded.
-    required_modules = ("d3dx9_30.dll", "msvcr71.dll", "msvcp71.dll")
-    run(env, py, "scripts/prepare_modules.py",
-        *(["--resume"] if args.resume else []), *required_modules)
-
-    print("\nBase-game C generation completed. Build: cd android && ./gradlew assembleDebug", flush=True)
+    print(f"\nOffline {args.stage} stage(s) completed. Build only after all real "
+          "game, audio and DLL stages have succeeded.", flush=True)
     print("NFSCO and server.dll are not needed for this single-player build.")
 
 
