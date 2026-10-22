@@ -270,6 +270,43 @@ with required DLL/ABK work still pending. No re-upload is needed.
 Next: address native CMake/compiler issues revealed by CI and resume the
 game DLL/ABK lift when the container tool is restored.
 
+## Verified Android native host compile — GitHub Actions (2026-10-22)
+
+**SUCCESS — TEST-ONLY.** GitHub-hosted CI run
+https://github.com/brianbri6/nfsc/actions/runs/39809835715
+completed with all steps green:
+- Android SDK 35, NDK 28.2.13676358, CMake 3.30.5 installed.
+- Patched pcrecomp, DXVK Native, libadrenotools initialized successfully.
+- Gradle `assembleDebug -PnfsSmokeStub=ON -PnfsGuestLto=OFF
+  -PnfsAbi=arm64-v8a` returned **BUILD SUCCESSFUL in 1m 18s**.
+- Verified packaged `lib/arm64-v8a/libnfsc_android.so` (3,691,552 bytes)
+  and `lib/arm64-v8a/libnfsc_diagnostics.so` (899,488 bytes).
+- GitHub Actions artifact: `nfsc-native-link-smoke-nonplayable`,
+  artifact ID 12440725720 (~3.2 MB compressed); this artifact is **NOT**
+  a playable game and must not be released to users as one.
+- No game files, generated Carbon executable code or sound-bank bytes were
+  uploaded to GitHub. This build tests Android Java/C++/DXVK infrastructure.
+- Only warnings concerned third-party libadrenotools and Node 20 action
+  deprecation; native compile and link itself passed.
+
+Additional source fixes:
+- `scripts/prepare_modules.py` no longer treats optional `server.dll`
+  as an importer in the offline code-generation path.
+- `scripts/prepare_offline.py --resume` validates the current original EXE
+  analysis SHA, completed lift stats, dispatch table and C file count before
+  skipping a completed main executable stage; it similarly resumes individual
+  DLL and sound-bank stages.
+- `scripts/bootstrap_offline.py --resume` supports partial generation;
+  `--all` resumes automatically.
+- GitHub Actions public toolchain tests for commits f9bbda79 and 86c024bc
+  both finished successfully, including `python -m compileall -q scripts`.
+
+**Remaining real-game blocker:** DLL (D3DX/MSVCR/MSVCP) and ABK C generation
+from the supplied private game files is not yet confirmed complete; the
+container-backed runtime is currently returning ClientError. Resume the
+previous local workspace when it becomes reachable, then compile the actual
+52,931-function generated C with the now-tested native Android build path.
+
 ## Next steps
 1. Game and sound binary inputs are verified; fetch pcrecomp + nfsu2-recompiled and run offline --check-only on the build host.
 2. Run prepare_offline.py to generate lifted C and required DLL/sound modules.
