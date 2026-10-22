@@ -202,6 +202,7 @@ void bindDeferredModuleImports(size_t first){
     if(bound)NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","Bound %zu imports to lifted DLLs",bound);
 }
 
+#ifdef NFSC_ENABLE_NFSCO
 // NFSCO: the lifted NFSC.exe carries palmont's patches (jumps into palmont and
 // its pool), so palmont must be loaded and attached before the game starts,
 // as NFSCO's bootstrapper does on Windows.
@@ -290,3 +291,4 @@ void startNfsco(){
         throw GuestStop("NFSCO trampolines do not match the lifted pool: "+hex(nfscoPoolNext-nfscoPoolBase)+" bytes allocated, 0x21000 captured");
     NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","NFSCO attached: %u bytes of trampolines",nfscoPoolNext-nfscoPoolBase);
 }
+#endif  // NFSC_ENABLE_NFSCO
