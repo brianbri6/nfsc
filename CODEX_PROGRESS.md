@@ -94,6 +94,53 @@ Need for Speed Carbon input directory; no game binaries were run.
   beside NFSC.exe, permit --check-only without pcrecomp installed, and
   verify PE32 image bases/sizes before cataloguing.
 
+## Continuation results — 2026-10-22 (current session)
+
+Reused the extracted uploaded game files under /mnt/data/nfsc_input on the
+isolated execution host. This is local user-provided content only; it is NOT
+committed or uploaded into GitHub.
+
+New, independently executed read-only checks (stdlib PE parser + ABKC parser):
+- Carbon 1.4 NFSC.exe checksum matches config/reference.json.
+- All required local DLLs have expected PE32 image bases and sizes.
+- Parsed all 285 .abk sound banks without errors.
+- 103 distinct x86 ABK code blocks, 722,060 embedded code bytes counted with
+  duplicates, 33,232 verified patched call references into 28 call table entries.
+- Zero invalid ABKC headers, code ranges, call operand locations, target
+  indices or target code addresses.
+- Negative check: corrupting a copied bank's ABKC magic was rejected.
+- Saved machine-readable results locally at
+  /mnt/data/nfsc_offline_preflight_detailed.json.
+
+New repository code:
+- scripts/verify_offline_assets.py: standalone no-dependency input validator.
+- scripts/prepare_offline.py now also runs the sound callback verification
+  during --check-only and before the expensive lift.
+- scripts/bootstrap_offline.py: reproducible setup using sibling cloned
+  nfsu2-recompiled (including its libadrenotools submodule), the pinned
+  patched pcrecomp toolchain, DXVK Native native-1.9.2b revision
+  c8dc91fabd00cac11d697ccf07426e798393cd40 and NFSU2 shader
+  generation, then C generation and Gradle ARM64 APK compilation.
+- README.md documents validator, --check, --setup, --generate, --build, --all.
+
+Exact first commands, on a Windows/Linux build host with network access:
+```bash
+python scripts/verify_offline_assets.py "../Need for Speed Carbon" --json-out work/offline_input_report.json
+python scripts/bootstrap_offline.py --game-root "../Need for Speed Carbon" --check
+python scripts/bootstrap_offline.py --game-root "../Need for Speed Carbon" --all
+```
+
+Environment blocker reconfirmed:
+- This execution container has NO GitHub DNS/network access and NO local
+  pcrecomp clone, capstone/pefile, prepared NFSU2/DXVK source or Android SDK/NDK.
+- Therefore full generated game C and the APK still cannot be compiled here.
+- The helper's Python syntax was checked locally against a matching standalone
+  copy; its open-source dependency clone/build stages are not execution-tested.
+- No functioning APK or game boot has been claimed. The PR stays DRAFT.
+- Do NOT request the full game data upload; only the input code archive was
+  necessary for this development stage. Other game assets can stay on the
+  user's computer/phone for later testing.
+
 ## Next steps
 1. Game and sound binary inputs are verified; fetch pcrecomp + nfsu2-recompiled and run offline --check-only on the build host.
 2. Run prepare_offline.py to generate lifted C and required DLL/sound modules.
