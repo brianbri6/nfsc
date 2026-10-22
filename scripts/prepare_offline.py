@@ -165,7 +165,7 @@ def main():
                not (args.resume and complete_lift(ROOT / "src" / "recomp" /
                                                 ("gen_" + prefix.rstrip("_")), prefix))]
     if pending:
-        run(env, py, "scripts/prepare_modules.py", *pending)
+        run(env, py, "scripts/prepare_modules.py", *(["--resume"] if args.resume else []), *pending)
     else:
         print("RESUME: all required DLL lifts are complete.", flush=True)
 
