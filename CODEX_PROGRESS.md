@@ -377,6 +377,48 @@ assets into a public GitHub repository, committed:
   path for EXE, D3DX, MSVCR, MSVCP and ABK translation units. It is synthetic,
   not a game, and no playable APK was produced.
 
+## Function-catalog memory and interrupted-lift safety — 2026-10-22
+
+The local model execution container still fails on trivial Python and shell
+commands with ClientError. No private game binary could be processed in this
+turn; the previously generated 52,931-function C checkpoint is preserved
+outside GitHub, but cannot currently be reopened for the final real APK.
+
+Substantive generator fixes committed to the offline branch:
+- scripts/run_lift.py: restore_seeds used to allocate dict/set entries for
+  nearly every byte interior to every decoded instruction in every function.
+  It now builds coverage only for *missing seed addresses*. This preserves
+  the previous function-overlap and call-target protection semantics while
+  eliminating potentially millions of unnecessary dict/set allocations.
+  Designed to reduce peak RAM during costly D3DX catalogue generation.
+- scripts/run_lift.py: before regenerating any translation units, remove any
+  previous lift_stats.json so a crash midway through rewriting C cannot leave
+  a stale "completed" manifest that --resume would incorrectly trust.
+  A fresh manifest is written only after all generated outputs are emitted.
+- tests/test_run_lift_seeds.py: tests sparse coverage, equivalence against
+  the original coverage algorithm, preservation of called and seeded
+  legitimate functions, restoration of uncalled bogus starts, and stale
+  success-manifest invalidation.
+- .github/workflows/offline-toolchain.yml: run these tests using the patched
+  public pcrecomp toolchain on a GitHub runner; no copyrighted game files.
+- Verification run: https://github.com/brianbri6/nfsc/actions/runs/39826647575
+  (triggered; completion status must be checked before claiming it passed).
+
+Immediate resume command when an execution environment has the private
+game binaries and existing lifted C workspace mounted:
+```bash
+cd /mnt/data/nfsc-build-workspace/nfsc
+PYTHONPATH=/mnt/data/nfsc-build-workspace/.python \
+ python scripts/prepare_offline.py --game-root \
+ "/mnt/data/nfsc_input/Need for Speed Carbon" --resume
+cd android
+./gradlew assembleDebug -PnfsAbi=arm64-v8a -PnfsGuestLto=OFF
+```
+
+The APK must be verified on disk and installed for boot testing before making
+any claim that Carbon single-player runs. Public test APKs remain non-playable
+and should not be released.
+
 ## Next steps
 1. Game and sound binary inputs are verified; fetch pcrecomp + nfsu2-recompiled and run offline --check-only on the build host.
 2. Run prepare_offline.py to generate lifted C and required DLL/sound modules.
