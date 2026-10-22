@@ -53,7 +53,14 @@ MODULES = {
 # Only modules selected for this build may impose import/export
 # requirements. The default offline path explicitly omits server.dll.
 # In particular, never require or parse LAN/online DLLs for single-player.
-IMPORTERS = [GAME / "NFSC.exe"] + [MODULES[n][0] for n in (sys.argv[1:] or MODULES)]
+# Keep the importer set stable when --resume asks for only missing DLLs.
+# msvcp71 may depend on msvcr71 even when the latter lift already finished.
+# The EA LAN DLL is considered only when explicitly selected.
+SELECTED = [n for n in sys.argv[1:] if n != "--resume"]
+BASE_IMPORTERS = ("d3dx9_30.dll", "msvcr71.dll", "msvcp71.dll")
+IMPORTERS = [GAME / "NFSC.exe"] + [MODULES[n][0] for n in BASE_IMPORTERS]
+if "server.dll" in SELECTED:
+    IMPORTERS.append(MODULES["server.dll"][0])
 
 NOT_CODE = {'arpl', 'insb', 'insd', 'insw', 'outsw', 'outsb', 'outsd', 'bound', 'daa', 'das', 'aaa', 'aas',
             'aam', 'aad', 'popaw', 'pushaw', 'sldt', 'lcall', 'ljmp', 'into', 'salc', 'hlt', 'cli', 'sti',
@@ -139,7 +146,7 @@ def lift(name):
 
 
 if __name__ == "__main__":
-    names = sys.argv[1:] or list(MODULES)
+    names = SELECTED or list(MODULES)
     unknown = [n for n in names if n not in MODULES]
     if unknown:
         sys.exit(f"unknown module(s) {unknown}; known: {list(MODULES)}")
