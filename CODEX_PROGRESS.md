@@ -429,6 +429,54 @@ The APK must be verified on disk and installed for boot testing before making
 any claim that Carbon single-player runs. Public test APKs remain non-playable
 and should not be released.
 
+## Independent real-code stages and sound-file fingerprinting — 2026-10-22
+
+The private Carbon execution workspace remains unavailable in this chat:
+container.exec and python.exec both return ClientError before commands can
+start. No proprietary input files were uploaded to public GitHub.
+
+Repository work on branch offline-singleplayer-bootstrap:
+- scripts/prepare_offline.py --stage game|audio|dlls|all selects independent
+  source-generation milestones; all remains the default. This lets the 52,931
+  function original EXE lift be reused while audio and D3DX finish separately.
+- scripts/bootstrap_offline.py --generate --stage audio|dlls|game --resume
+  forwards the same selection. First full ARM64 APK builds now default to
+  -PnfsGuestLto=OFF (optionally --lto after a successful first build).
+- Audio C resume now checks SHA-256 fingerprints over every actual .abk bank,
+  the original game exe digest, the ABK generator, lifter, configuration and
+  patched pcrecomp tool. An atomic completion manifest records the matching
+  fingerprint; changes force audio regeneration rather than reusing stale C.
+- No incomplete audio stage is accepted as a success: all generated
+  recomp_*.c, dispatch, lift stats and abk_blocks.c must exist, and the lift
+  reports zero generation errors.
+- tests/test_offline_stage_selection.py uses dummy **non-game** PE headers to
+  check selection of every stage, bank/tool fingerprint changes, and how a
+  matching audio manifest skips work while changed inputs regenerate.
+- .github/workflows/offline-toolchain.yml runs these regression tests in the
+  open-source GitHub build environment, without owner game files.
+
+Verified public workflow:
+https://github.com/brianbri6/nfsc/actions/runs/39828754900 SUCCESS,
+including prior stage-isolation tests and toolchain installation.
+Current later audio-resume tests are being checked at:
+https://github.com/brianbri6/nfsc/actions/runs/39829760062
+Check the final result before considering the new audio tests passed.
+
+Direct private-data build commands on a build host with the staged game files:
+```bash
+python scripts/prepare_offline.py \
+ --game-root "../Need for Speed Carbon" --stage audio --resume
+python scripts/prepare_offline.py \
+ --game-root "../Need for Speed Carbon" --stage dlls --resume
+python scripts/prepare_offline.py \
+ --game-root "../Need for Speed Carbon" --stage game --resume
+python scripts/bootstrap_offline.py --build
+```
+
+Actual Carbon ARM64 APK is still NOT produced; synthetic integration APKs
+are test-only. Continue on a host with access to the prior local game
+binaries and patched toolchain. No additional user upload is necessary.
+
 ## Next steps
 1. Game and sound binary inputs are verified; fetch pcrecomp + nfsu2-recompiled and run offline --check-only on the build host.
 2. Run prepare_offline.py to generate lifted C and required DLL/sound modules.
