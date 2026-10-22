@@ -21,24 +21,24 @@ uploaded to GitHub**.
 Preflight and save a machine-readable report without pcrecomp, the NDK or any
 third-party Python dependency:
 
-\`\`\`bash
+```bash
 python scripts/verify_offline_assets.py "../Need for Speed Carbon" --json-out work/offline_input_report.json
 python scripts/bootstrap_offline.py --game-root "../Need for Speed Carbon" --check
-\`\`\`
+```
 
 To prepare pinned open-source dependencies, generate all C locally and attempt
 the ARM64 APK (requires an internet-enabled host, Android Studio SDK 35,
 NDK 28.2.13676358, CMake 3.30.5, Git, Java and the Vulkan shader tools
-\`glslangValidator\` and \`spirv-val\`):
+`glslangValidator` and `spirv-val`):
 
-\`\`\`bash
+```bash
 python scripts/bootstrap_offline.py --game-root "../Need for Speed Carbon" --all
-\`\`\`
+```
 
-You can run each stage separately using \`--setup\`, \`--generate\`, and \`--build\`.
+You can run each stage separately using `--setup`, `--generate`, and `--build`.
 The helper initializes NFSU2's libadrenotools submodule, pins the pcrecomp
 patch base, checks DXVK Native's exact revision, prepares the Android DXVK
-source and 54 shader binaries, and invokes \`gradlew assembleDebug\`. Existing
+source and 54 shader binaries, and invokes `gradlew assembleDebug`. Existing
 local tool checkouts are preserved.
 
 **Status:** Input validation and source changes are verified, but C generation,
