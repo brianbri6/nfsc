@@ -27,6 +27,34 @@ PCRECOMP_FILES = ("tools/pe/pe_analyze.py", "tools/disasm/disasm32.py",
                   "runtime/recomp32/recomp_types.h")
 
 
+def audio_input_fingerprint(game, exe_sha256, sound_banks, pcrecomp):
+    """Bind completed audio C to actual bank bytes and the lifter implementation.
+
+    Never trust stale generated sound code when an audio bank, original game
+    executable, or relevant source tool has changed.
+    """
+    value = hashlib.sha256(b"nfsc-offline-audio-v1")
+    value.update(exe_sha256.encode("ascii"))
+    source_tools = (
+        ROOT / "scripts/abk_module.py",
+        ROOT / "scripts/run_lift.py",
+        ROOT / "scripts/mw_lifter.py",
+        ROOT / "config/overrides.txt",
+        ROOT / "config/exclude.txt",
+        ROOT / "config/hooks.txt",
+        pcrecomp / "tools/lift/lift32.py",
+    )
+    for file in (*sorted(sound_banks), *source_tools):
+        if not file.is_file():
+            raise FileNotFoundError(f"Missing audio source dependency: {file}")
+        name = file.relative_to(game).as_posix() if file.is_relative_to(game) else str(file)
+        value.update(name.encode("utf-8"))
+        with file.open("rb") as stream:
+            for part in iter(lambda: stream.read(1 << 20), b""):
+                value.update(part)
+    return value.hexdigest()
+
+
 def run(env, *command):
     print("+", " ".join(map(str, command)), flush=True)
     subprocess.run([str(item) for item in command], cwd=ROOT, env=env, check=True)
@@ -169,14 +197,33 @@ def main():
         abk_image = work / "abk_analysis.dll"
         abk_seeds = work / "abk_seeds.json"
         abk_catalog = work / "abk_catalog.json"
-        if args.resume and (abk / "abk_blocks.c").is_file() and complete_lift(abk, "abk_"):
-            print("RESUME: reusing complete sound-bank C lift.", flush=True)
+        audio_manifest = work / "audio_lift_manifest.json"
+        audio_hash = audio_input_fingerprint(game, digest, sound_banks, pcrecomp)
+        valid_audio_manifest = False
+        if args.resume and audio_manifest.is_file():
+            try:
+                valid_audio_manifest = (json.loads(audio_manifest.read_text(encoding="utf-8"))
+                                        .get("fingerprint") == audio_hash)
+            except (OSError, ValueError):
+                pass
+        if (args.resume and valid_audio_manifest and
+                (abk / "abk_blocks.c").is_file() and complete_lift(abk, "abk_")):
+            print("RESUME: reusing hash-verified sound-bank C lift.", flush=True)
         else:
+            # A new attempt cannot inherit a stale completed-audio marker.
+            audio_manifest.unlink(missing_ok=True)
             run(env, py, "scripts/abk_module.py", game, abk_image, abk_seeds, abk / "abk_blocks.c")
             run(env, py, "scripts/run_lift.py", "catalog", abk_image, abk_seeds,
                 abk_catalog, "--seeds-only")
             run(env, py, "scripts/run_lift.py", "lift", abk_image, abk_catalog,
                 abk, "--prefix", "abk_")
+            if not (abk / "abk_blocks.c").is_file() or not complete_lift(abk, "abk_"):
+                raise RuntimeError("Sound-bank C lift ended without complete outputs")
+            tmp = audio_manifest.with_suffix(".tmp")
+            tmp.write_text(json.dumps({"fingerprint": audio_hash,
+                                       "banks": len(sound_banks)}, indent=2) + "\n",
+                           encoding="utf-8")
+            tmp.replace(audio_manifest)
 
     if args.stage in ("all", "dlls"):
         # Always ask the DLL pipeline to validate all required modules. It can
