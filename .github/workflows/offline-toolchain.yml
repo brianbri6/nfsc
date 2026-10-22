@@ -43,6 +43,19 @@ jobs:
           test -f ../nfsu2-recompiled/build/dxvk-source/src/d3d9/d3d9_device.cpp
           test "$(find ../nfsu2-recompiled/build/dxvk-source/generated -name '*.spv' | wc -l)" -ge 54
           echo 'Public recompilation and DXVK dependencies verified.'
+      - name: Package public source and Python wheels for the offline workspace
+        run: |
+          mkdir -p ../offline_wheels
+          python -m pip download -d ../offline_wheels capstone pefile
+          tar --exclude=.git --exclude=node_modules --exclude=.gradle -czf /tmp/nfsc-open-toolchain.tar.gz -C .. nfsc pcrecomp nfsu2-recompiled offline_wheels
+          ls -lh /tmp/nfsc-open-toolchain.tar.gz
+      - name: Upload toolchain for offline local C generation
+        uses: actions/upload-artifact@v4
+        with:
+          name: nfsc-public-offline-toolchain
+          path: /tmp/nfsc-open-toolchain.tar.gz
+          retention-days: 2
+          if-no-files-found: error
       - name: Status
         if: always()
         run: |
