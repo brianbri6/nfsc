@@ -458,9 +458,12 @@ Repository work on branch offline-singleplayer-bootstrap:
 Verified public workflow:
 https://github.com/brianbri6/nfsc/actions/runs/39828754900 SUCCESS,
 including prior stage-isolation tests and toolchain installation.
-Current later audio-resume tests are being checked at:
+**Final latest CI PASS:** GitHub Actions 39829760062 completed SUCCESS.
 https://github.com/brianbri6/nfsc/actions/runs/39829760062
-Check the final result before considering the new audio tests passed.
+Its checks for Python source syntax, resumable DLL processing, independently
+selected game/audio/DLL stages, audio bank/tool fingerprint change detection,
+and low-memory seed restoration all passed. These are public synthetic/unit
+tests; no copyrighted game binaries are on the runner.
 
 Direct private-data build commands on a build host with the staged game files:
 ```bash
