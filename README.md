@@ -45,13 +45,13 @@ python -m pip install capstone pefile
 Prepare the locally generated C code from the **unmodified stock** executable:
 
 ```bash
-python scripts/prepare_offline.py --game-root "../Need for Speed Carbon" --d3dx "C:/Windows/SysWOW64/d3dx9_30.dll" --check-only
-python scripts/prepare_offline.py --game-root "../Need for Speed Carbon" --d3dx "C:/Windows/SysWOW64/d3dx9_30.dll"
+python scripts/prepare_offline.py --game-root "../Need for Speed Carbon" --check-only
+python scripts/prepare_offline.py --game-root "../Need for Speed Carbon"
 cd android
 ./gradlew assembleDebug
 ```
 
-On Windows, `--d3dx` can be omitted if it is present in `%SystemRoot%/SysWOW64/`. On other systems provide an accessible 32-bit copy with `--d3dx`. The code generator is platform-independent, but capturing NFSCO hooks (not part of the offline build) is Windows-specific. Prepare DXVK through the sibling NFSU2 Android build prerequisites. The Android project uses SDK 35, NDK 28.2.13676358 and CMake 3.30.5. The default ABI is arm64-v8a.
+The generator now auto-detects `d3dx9_30.dll` beside `NFSC.exe`, or uses the 32-bit copy in Windows `SysWOW64`. Supply `--d3dx /path/to/d3dx9_30.dll` if it is elsewhere. `--check-only` verifies just the game inputs, including the exact executable checksum and DLL layouts, before pcrecomp is installed. The code generator is platform-independent, but capturing NFSCO hooks (not part of the offline build) is Windows-specific. Prepare DXVK through the sibling NFSU2 Android build prerequisites. The Android project uses SDK 35, NDK 28.2.13676358 and CMake 3.30.5. The default ABI is arm64-v8a.
 
 The debug APK, if compilation succeeds, appears at `android/app/build/outputs/apk/debug/app-debug.apk`. Copy your own original game assets into `/sdcard/nfsc/` on the device. An APK without the user's game files is not a complete playable game.
 
