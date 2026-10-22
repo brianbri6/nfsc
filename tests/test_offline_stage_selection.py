@@ -54,12 +54,26 @@ class OfflineStageIsolation(unittest.TestCase):
             "total_banks": 1, "unique_code_blocks": 1,
             "patched_call_references_verified": 0,
         }}
+        def fake_run(env, *args):
+            calls.append(args)
+            if args[1] == "scripts/abk_module.py":
+                Path(args[5]).write_text("/* TEST-ONLY ABK block marker */", encoding="utf-8")
+            if args[1] == "scripts/run_lift.py" and args[2] == "lift" and "abk_" in args:
+                generated = Path(args[5])
+                generated.mkdir(parents=True, exist_ok=True)
+                (generated / "abk_recomp_0000.c").write_text(
+                    "/* TEST-ONLY fake C */", encoding="utf-8")
+                (generated / "abk_recomp_dispatch.c").write_text(
+                    "/* TEST-ONLY fake dispatch */", encoding="utf-8")
+                (generated / "abk_lift_stats.json").write_text(
+                    '{"functions": 1, "files": 1, "lift_failures": 0}', encoding="utf-8")
+
         with patch.object(offline, "ROOT", self.root), \
              patch.object(offline, "REFERENCE", self.reference), \
              patch.object(offline, "PCRECOMP_FILES", ()), \
              patch.object(offline, "verify_offline_assets", return_value=results), \
              patch.object(offline, "audio_input_fingerprint", return_value="fixture-only"), \
-             patch.object(offline, "run", side_effect=lambda env, *args: calls.append(args)), \
+             patch.object(offline, "run", side_effect=fake_run), \
              patch.object(sys, "argv", ["prepare_offline.py", "--game-root", str(self.game),
                                         "--stage", stage]):
             offline.main()
