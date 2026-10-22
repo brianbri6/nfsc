@@ -96,6 +96,7 @@ def main():
     p.add_argument("--generate", action="store_true", help="Regenerate original game C sources")
     p.add_argument("--build", action="store_true", help="Compile Android debug APK from generated C")
     p.add_argument("--all", action="store_true", help="Preflight + setup + generate + build")
+    p.add_argument("--resume", action="store_true", help="Reuse verified completed recompilation stages")
     args = p.parse_args()
     if not (args.check or args.setup or args.generate or args.build or args.all):
         p.error("Select --check, --setup, --generate, --build, or --all")
@@ -107,7 +108,10 @@ def main():
         if args.setup or args.all:
             setup_sources()
         if args.generate or args.all:
-            run([sys.executable, ROOT / "scripts/prepare_offline.py", "--game-root", game])
+            command = [sys.executable, ROOT / "scripts/prepare_offline.py", "--game-root", game]
+            if args.resume or args.all:
+                command.append("--resume")
+            run(command)
         if args.build or args.all:
             if not (os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT") or
                     (ROOT / "android/local.properties").is_file()):
