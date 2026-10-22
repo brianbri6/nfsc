@@ -8,6 +8,8 @@ on:
       - 'scripts/bootstrap_offline.py'
       - 'scripts/prepare_offline.py'
       - 'scripts/verify_offline_assets.py'
+      - 'scripts/prepare_modules.py'
+      - 'tests/test_offline_module_resume.py'
   workflow_dispatch:
 
 permissions:
@@ -39,6 +41,8 @@ jobs:
           python -m compileall -q scripts
           python scripts/bootstrap_offline.py --help
           python scripts/verify_offline_assets.py --help
+      - name: Test resumable DLL processing without game files
+        run: python -m unittest discover -s tests -p 'test_offline_module_resume.py' -v
       - name: Prepare open-source dependencies
         run: python scripts/bootstrap_offline.py --setup
       - name: Verify prepared dependencies
