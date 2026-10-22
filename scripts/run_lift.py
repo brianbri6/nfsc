@@ -33,6 +33,26 @@ import disasm32                                     # noqa: E402
 from disasm32 import Disassembler, Function, BasicBlock, Instruction  # noqa: E402
 
 
+def missing_seed_coverage(funcs, missing):
+    """Which existing functions decode a missing seed *inside* an instruction?
+
+    The start address is excluded, as in the original restoration code.
+    Allocate coverage sets only for actual missing seeds rather than every
+    interior byte of every decoded instruction in the whole catalog.
+    """
+    candidates = set(missing)
+    if not candidates:
+        return {}
+    covering = {}
+    for address, func in funcs.items():
+        for block in func.blocks.values():
+            for ins in block.instructions:
+                for byte_va in range(ins.address + 1, ins.address + ins.size):
+                    if byte_va in candidates:
+                        covering.setdefault(byte_va, set()).add(address)
+    return covering
+
+
 def restore_seeds(dis, iat, funcs, seeds):
     """Seeds the catalog lost to a bogus neighbour (NFSU1: no relocations).
 
@@ -50,16 +70,17 @@ def restore_seeds(dis, iat, funcs, seeds):
     that is itself a seed) is the bogus one and is skipped; only an uncalled,
     unseeded start loses to the seed.
     """
-    starts = {}
-    for a, f in funcs.items():
-        for b in f.blocks.values():
-            for ins in b.instructions:
-                for k in range(ins.address + 1, ins.address + ins.size):
-                    starts.setdefault(k, set()).add(a)
+    # Only missing *seed* addresses need mid-instruction coverage. The old
+    # implementation allocated a dict entry (and a set) for nearly every
+    # decoded instruction byte across the entire catalog, even when there
+    # were just a handful of missing seeds. A large D3DX module could exhaust
+    # memory before the actual lift started. Keep the exact overlap semantics
+    # while allocating entries for the candidate seeds only.
+    missing = [s for s in seeds if s not in funcs]
+    starts = missing_seed_coverage(funcs, missing)
     called = set()
     for f in funcs.values():
-        called |= set(f.calls_to)
-    missing = [s for s in seeds if s not in funcs]
+        called.update(f.calls_to)
     bogus, restore, skipped = set(), [], 0
     for s in missing:
         covering = starts.get(s, set())
