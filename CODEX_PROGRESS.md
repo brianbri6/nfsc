@@ -307,6 +307,50 @@ container-backed runtime is currently returning ClientError. Resume the
 previous local workspace when it becomes reachable, then compile the actual
 52,931-function generated C with the now-tested native Android build path.
 
+## DLL-stage resume hardening — 2026-10-22 (latest continuation)
+
+The container execution service is still failing with ClientError. Original
+user binaries and the earlier local 52,931-function game C output cannot be
+operated on or inspected in this session. No live game lift, APK build, or
+Android device test was carried out here.
+
+Repository fixes on branch offline-singleplayer-bootstrap:
+- scripts/prepare_modules.py: stable base-game importer set even when only
+  one DLL is pending, excluding optional server.dll in offline mode.
+- scripts/prepare_modules.py: per-DLL checkpoint file at
+  work/modules/<module>/pipeline_checkpoint.json, atomically saved after each
+  successful relocated/probed/catalogued/classified/lifted stage.
+- Resume checkpoints tied to SHA-256 hashes of the input DLLs, original
+  game importer set, generator code, and pcrecomp tools. Invalid or missing
+  outputs cause the dependent stages to rerun.
+- scripts/prepare_offline.py: --resume now passes the flag to
+  prepare_modules.py and validates all three mandatory DLLs instead of
+  trusting a dispatch-count-only source manifest.
+- tests/test_offline_module_resume.py: game-free tests cover first run,
+  entirely skipped verified rerun, injected catalog crash recovery, invalid
+  JSON recovery, and changed fingerprint invalidation.
+- .github/workflows/offline-toolchain.yml runs the regression tests on
+  public GitHub-hosted runners, without publishing game assets.
+
+**Verified:** GitHub Actions run 39824110830 completed SUCCESS:
+https://github.com/brianbri6/nfsc/actions/runs/39824110830
+Step "Test resumable DLL processing without game files" succeeded. Python
+syntax check, patched pcrecomp/DXVK setup and public toolchain packaging
+also succeeded. This is NOT a playable-game test.
+
+Next execution command when the original workspace is accessible:
+```bash
+cd /mnt/data/nfsc-build-workspace/nfsc
+PYTHONPATH=/mnt/data/nfsc-build-workspace/.python \
+ python scripts/prepare_offline.py \
+ --game-root "/mnt/data/nfsc_input/Need for Speed Carbon" --resume
+```
+The previous main game C stage should be reused only after it passes its
+source-hash and output checks. D3DX/MSVCR/MSVCP and ABK stages are still
+unconfirmed; then build ARM64 with -PnfsGuestLto=OFF and verify the APK
+is actually present. Do not upload copyrighted game binaries to public
+GitHub.
+
 ## Next steps
 1. Game and sound binary inputs are verified; fetch pcrecomp + nfsu2-recompiled and run offline --check-only on the build host.
 2. Run prepare_offline.py to generate lifted C and required DLL/sound modules.
