@@ -401,8 +401,18 @@ Substantive generator fixes committed to the offline branch:
   success-manifest invalidation.
 - .github/workflows/offline-toolchain.yml: run these tests using the patched
   public pcrecomp toolchain on a GitHub runner; no copyrighted game files.
-- Verification run: https://github.com/brianbri6/nfsc/actions/runs/39826647575
-  (triggered; completion status must be checked before claiming it passed).
+- GitHub Actions run 39826647575 PASSED the new seed-coverage regression
+  and existing DLL-resume suite.
+  https://github.com/brianbri6/nfsc/actions/runs/39826647575
+- GitHub Actions run 39826854947 PASSED the updated lifter checks and public
+  dependency setup, including manifest-invalidation code changes.
+  https://github.com/brianbri6/nfsc/actions/runs/39826854947
+- scripts/prepare_offline.py now generates the smaller ABK audio callback
+  code *before* the memory-intensive D3DX/MSVCR/MSVCP DLL stages. A DLL crash
+  cannot delay the first sound-code generation attempt.
+- Latest CI run after sound-stage reordering:
+  https://github.com/brianbri6/nfsc/actions/runs/39827172372
+  (status to check; no proprietary game files are in this workflow).
 
 Immediate resume command when an execution environment has the private
 game binaries and existing lifted C workspace mounted:
